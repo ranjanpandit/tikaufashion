@@ -48,12 +48,20 @@ export default function CartIcon() {
          MINI CART
       ========================== */}
       {open && (
-        <div className="absolute right-0 top-full mt-3 w-[360px] bg-white border rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+        <div
+          className="
+            absolute top-full mt-3
+            w-[calc(100vw-24px)]
+            max-w-[360px]
+            right-1/2 translate-x-1/2
+            md:right-0 md:translate-x-0
+            bg-white border rounded-xl shadow-xl
+            z-50 overflow-hidden
+          "
+        >
           {/* HEADER */}
           <div className="px-4 py-3 border-b flex justify-between items-center">
-            <h4 className="font-semibold text-sm">
-              Cart ({count} items)
-            </h4>
+            <h4 className="font-semibold text-sm">Cart ({count} items)</h4>
             <button
               onClick={() => setOpen(false)}
               className="text-gray-400 hover:text-black"
@@ -72,10 +80,7 @@ export default function CartIcon() {
               {/* ITEMS */}
               <div className="max-h-[300px] overflow-y-auto divide-y">
                 {items.map((item) => (
-                  <div
-                    key={item.cartId}
-                    className="flex gap-3 p-4 text-sm"
-                  >
+                  <div key={item.cartId} className="flex gap-3 p-4 text-sm">
                     <img
                       src={item.image}
                       alt={item.name}
@@ -97,9 +102,7 @@ export default function CartIcon() {
                         )}
 
                       <div className="flex justify-between items-center mt-2">
-                        <span className="text-gray-600">
-                          Qty: {item.qty}
-                        </span>
+                        <span className="text-gray-600">Qty: {item.qty}</span>
                         <span className="font-semibold">
                           ₹{item.price * item.qty}
                         </span>

@@ -148,7 +148,7 @@ export default function CheckoutPage() {
       items: cart,
       subtotal,
       discount,
-      coupon: appliedCoupon,
+      coupon: coupon.code,
       total,
       paymentMethod,
     };
@@ -318,7 +318,7 @@ export default function CheckoutPage() {
           cart={cart}
           total={total}
           paymentMethod={paymentMethod}
-          coupon={appliedCoupon}
+          coupon={coupon.code}
           onCancel={() => setShowConfirm(false)}
           onConfirm={() => {
             setShowConfirm(false);
@@ -374,29 +374,103 @@ function ConfirmModal({
   onConfirm,
 }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded p-6 w-full max-w-md">
-        <h3 className="font-semibold mb-3">Confirm Order</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* BACKDROP */}
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={onCancel}
+      />
 
-        {cart.map((i) => (
-          <div key={i.cartId} className="flex justify-between text-sm">
-            <span>
-              {i.name} × {i.qty}
-            </span>
-            <span>₹{i.price * i.qty}</span>
+      {/* MODAL */}
+      <div className="relative bg-white w-full max-w-lg mx-4 rounded-xl shadow-2xl overflow-hidden">
+        {/* HEADER */}
+        <div className="px-6 py-4 border-b flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold">
+              Confirm Your Order
+            </h3>
+            <p className="text-sm text-gray-500">
+              Please review before placing order
+            </p>
           </div>
-        ))}
 
-        <p className="font-semibold mt-3">Total: ₹{total}</p>
-        <p>Payment: {paymentMethod}</p>
-        {coupon && <p>Coupon: {coupon.code}</p>}
-
-        <div className="flex gap-3 mt-5">
-          <button className="flex-1 border py-2 rounded" onClick={onCancel}>
-            Cancel
+          <button
+            onClick={onCancel}
+            className="text-gray-400 hover:text-black text-xl"
+          >
+            ✕
           </button>
-          <button className="flex-1 btn-brand py-2" onClick={onConfirm}>
-            Confirm
+        </div>
+
+        {/* BODY */}
+        <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
+          {/* ITEMS */}
+          <div className="space-y-3">
+            {cart.map((item) => (
+              <div
+                key={item.cartId}
+                className="flex justify-between items-start text-sm"
+              >
+                <div className="pr-4">
+                  <p className="font-medium leading-snug line-clamp-2">
+                    {item.name}
+                  </p>
+
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Qty: {item.qty}
+                  </p>
+                </div>
+
+                <p className="font-medium">
+                  ₹{item.price * item.qty}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* SUMMARY */}
+          <div className="mt-5 pt-4 border-t space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">
+                Payment Method
+              </span>
+              <span className="font-medium">
+                {paymentMethod === "COD"
+                  ? "Cash on Delivery"
+                  : "Online Payment"}
+              </span>
+            </div>
+
+            {coupon && (
+              <div className="flex justify-between text-green-600">
+                <span>Coupon Applied</span>
+                <span className="font-medium">
+                  {coupon} 
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-between text-base font-semibold pt-2">
+              <span>Total Payable</span>
+              <span>₹{total}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* FOOTER */}
+        <div className="px-6 py-4 border-t bg-gray-50 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 border border-gray-300 py-3 rounded-lg text-sm font-medium hover:bg-white transition"
+          >
+            Go Back
+          </button>
+
+          <button
+            onClick={onConfirm}
+            className="flex-1 bg-black text-white py-3 rounded-lg text-sm font-medium hover:opacity-90 transition"
+          >
+            Confirm & Place Order
           </button>
         </div>
       </div>
