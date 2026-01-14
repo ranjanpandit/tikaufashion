@@ -5,15 +5,14 @@ import { useSelector } from "react-redux";
 import { useEffect, useRef, useState } from "react";
 
 export default function CartIcon() {
-  const items = useSelector((state) => state.cart.items);
+  const { items, subtotal, discount, total } = useSelector(
+    (state) => state.cart
+  );
+
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
   const count = items.reduce((s, i) => s + i.qty, 0);
-  const subtotal = items.reduce(
-    (s, i) => s + i.price * i.qty,
-    0
-  );
 
   /* =========================
      CLOSE ON OUTSIDE CLICK
@@ -25,21 +24,21 @@ export default function CartIcon() {
       }
     }
     document.addEventListener("mousedown", handleClick);
-    return () =>
-      document.removeEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
   return (
     <div ref={ref} className="relative">
-      {/* CART ICON (CLICKABLE) */}
+      {/* CART ICON */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative inline-block"
+        className="relative flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 transition"
       >
-        🛒
+        <span className="text-xl">🛒</span>
+
         {count > 0 && (
-          <span className="absolute -top-2 -right-2 bg-black text-white text-xs rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+          <span className="absolute -top-1 -right-1 bg-black text-white text-[11px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
             {count}
           </span>
         )}
@@ -49,66 +48,93 @@ export default function CartIcon() {
          MINI CART
       ========================== */}
       {open && (
-        <div className="absolute right-0 top-full mt-3 w-80 bg-white border shadow-2xl rounded-lg z-50">
+        <div className="absolute right-0 top-full mt-3 w-[360px] bg-white border rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+          {/* HEADER */}
+          <div className="px-4 py-3 border-b flex justify-between items-center">
+            <h4 className="font-semibold text-sm">
+              Cart ({count} items)
+            </h4>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-gray-400 hover:text-black"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* EMPTY */}
           {items.length === 0 ? (
-            <div className="p-4 text-sm text-center text-gray-500">
+            <div className="p-6 text-center text-sm text-gray-500">
               Your cart is empty
             </div>
           ) : (
             <>
               {/* ITEMS */}
-              <div className="max-h-64 overflow-y-auto divide-y">
+              <div className="max-h-[300px] overflow-y-auto divide-y">
                 {items.map((item) => (
                   <div
                     key={item.cartId}
-                    className="flex gap-3 p-3 text-sm"
+                    className="flex gap-3 p-4 text-sm"
                   >
                     <img
                       src={item.image}
                       alt={item.name}
-                      className="w-14 h-14 object-cover border rounded"
+                      className="w-16 h-16 object-cover rounded-md border"
                     />
 
                     <div className="flex-1">
-                      <p className="font-medium line-clamp-1">
+                      <p className="font-medium leading-tight line-clamp-2">
                         {item.name}
                       </p>
 
                       {item.selectedOptions &&
-                        Object.keys(item.selectedOptions)
-                          .length > 0 && (
-                          <p className="text-xs text-gray-500">
-                            {Object.entries(
-                              item.selectedOptions
-                            )
-                              .map(
-                                ([k, v]) =>
-                                  `${k}: ${v}`
-                              )
+                        Object.keys(item.selectedOptions).length > 0 && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {Object.entries(item.selectedOptions)
+                              .map(([k, v]) => `${k}: ${v}`)
                               .join(", ")}
                           </p>
                         )}
 
-                      <p className="mt-1">
-                        ₹{item.price} × {item.qty}
-                      </p>
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="text-gray-600">
+                          Qty: {item.qty}
+                        </span>
+                        <span className="font-semibold">
+                          ₹{item.price * item.qty}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* FOOTER */}
-              <div className="border-t p-4">
-                <div className="flex justify-between font-semibold mb-3">
-                  <span>Subtotal</span>
-                  <span>₹{subtotal}</span>
+              {/* FOOTER (STICKY) */}
+              <div className="border-t bg-gray-50 px-4 py-4 space-y-3">
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span>₹{subtotal}</span>
+                  </div>
+
+                  {discount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Discount</span>
+                      <span>-₹{discount}</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between font-semibold text-base pt-1">
+                    <span>Total</span>
+                    <span>₹{total}</span>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">
                   <Link
                     href="/cart"
                     onClick={() => setOpen(false)}
-                    className="flex-1 border text-center py-2 rounded text-sm hover:bg-gray-50"
+                    className="flex-1 border border-gray-300 text-center py-2 rounded-md text-sm hover:bg-gray-100 transition"
                   >
                     View Cart
                   </Link>
@@ -116,7 +142,7 @@ export default function CartIcon() {
                   <Link
                     href="/checkout"
                     onClick={() => setOpen(false)}
-                    className="flex-1 bg-black text-white text-center py-2 rounded text-sm hover:opacity-90"
+                    className="flex-1 bg-black text-white text-center py-2 rounded-md text-sm hover:opacity-90 transition"
                   >
                     Checkout
                   </Link>

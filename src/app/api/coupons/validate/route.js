@@ -7,37 +7,53 @@ export async function POST(req) {
 
   const { code, subtotal } = await req.json();
 
-  if (!code)
+  /* =========================
+     BASIC VALIDATION
+  ========================== */
+  if (!code) {
     return NextResponse.json(
       { message: "Coupon code required" },
       { status: 400 }
     );
+  }
 
   const coupon = await Coupon.findOne({
     code: code.toUpperCase(),
     isActive: true,
   });
 
-  if (!coupon)
+  if (!coupon) {
     return NextResponse.json(
       { message: "Invalid coupon" },
       { status: 400 }
     );
+  }
 
-  if (coupon.expiresAt < new Date())
+  /* =========================
+     EXPIRY CHECK
+  ========================== */
+  if (coupon.expiresAt && coupon.expiresAt < new Date()) {
     return NextResponse.json(
       { message: "Coupon expired" },
       { status: 400 }
     );
+  }
 
-  if (subtotal < coupon.minOrder)
+  /* =========================
+     MIN ORDER CHECK
+  ========================== */
+  if (coupon.minOrder && subtotal < coupon.minOrder) {
     return NextResponse.json(
       {
         message: `Minimum order ₹${coupon.minOrder}`,
       },
       { status: 400 }
     );
+  }
 
+  /* =========================
+     USAGE LIMIT CHECK
+  ========================== */
   if (
     coupon.usageLimit &&
     coupon.usedCount >= coupon.usageLimit
@@ -48,17 +64,18 @@ export async function POST(req) {
     );
   }
 
-  let discount =
-    coupon.type === "percentage"
-      ? Math.round((subtotal * coupon.value) / 100)
-      : coupon.value;
-
-  if (coupon.maxDiscount) {
-    discount = Math.min(discount, coupon.maxDiscount);
-  }
-
+  /* =========================
+     SUCCESS RESPONSE
+     (RETURN RULES, NOT DISCOUNT)
+  ========================== */
   return NextResponse.json({
     code: coupon.code,
-    discount,
+    type:
+      coupon.type === "percentage"
+        ? "PERCENT"
+        : "FLAT",
+    value: coupon.value,
+    maxDiscount: coupon.maxDiscount || null,
+    minOrder: coupon.minOrder || null,
   });
 }
