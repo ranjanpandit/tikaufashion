@@ -5,7 +5,7 @@ import "./globals.css";
 
 async function getStore() {
   try {
-    const res = await fetch("http://localhost:3000/api/store", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/store`, {
       cache: "no-store",
     });
 
