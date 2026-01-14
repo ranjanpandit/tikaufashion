@@ -148,7 +148,7 @@ export default function CheckoutPage() {
       items: cart,
       subtotal,
       discount,
-      coupon: coupon.code,
+      coupon: coupon?.code,
       total,
       paymentMethod,
     };
@@ -288,7 +288,7 @@ export default function CheckoutPage() {
           ) : (
             <div className="mt-4 flex justify-between bg-green-50 p-2 rounded">
               <span>
-                Coupon <b>{coupon.code}</b> applied
+                Coupon <b>{coupon?.code}</b> applied
               </span>
               <button
                 onClick={removeCouponHandler}
