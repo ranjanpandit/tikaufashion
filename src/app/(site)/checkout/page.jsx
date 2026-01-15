@@ -318,7 +318,7 @@ export default function CheckoutPage() {
           cart={cart}
           total={total}
           paymentMethod={paymentMethod}
-          coupon={coupon.code}
+          coupon={coupon?.code}
           onCancel={() => setShowConfirm(false)}
           onConfirm={() => {
             setShowConfirm(false);

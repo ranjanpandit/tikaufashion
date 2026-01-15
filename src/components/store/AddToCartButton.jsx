@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "@/store/cartSlice";
 import { nanoid } from "@reduxjs/toolkit";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function AddToCartButton({
   product,
@@ -11,9 +12,12 @@ export default function AddToCartButton({
   variant,
 }) {
   const dispatch = useDispatch();
+  const router = useRouter();
+
   const cartItems = useSelector((state) => state.cart.items);
+
   const [showMsg, setShowMsg] = useState("");
-  
+  const [clickedOnce, setClickedOnce] = useState(false); // 👈 KEY
 
   function hasSelectedAllOptions() {
     if (!Array.isArray(product.options) || product.options.length === 0) {
@@ -32,7 +36,14 @@ export default function AddToCartButton({
     !hasSelectedAllOptions() ||
     (hasVariants && !variant);
 
-  function handleAdd() {
+  function handleClick() {
+    /* 👉 AFTER FIRST CLICK → VIEW CART */
+    if (clickedOnce) {
+      router.push("/cart");
+      return;
+    }
+
+    /* VALIDATION */
     if (!hasSelectedAllOptions()) {
       setShowMsg("Please select all options");
       setTimeout(() => setShowMsg(""), 2000);
@@ -57,6 +68,7 @@ export default function AddToCartButton({
         cartId: exists ? exists.cartId : nanoid(),
         productId: product._id,
         name: product.name,
+        slug: product.slug,
         price: variant?.price ?? product.price,
         image: product.images?.[0],
         selectedOptions,
@@ -64,24 +76,30 @@ export default function AddToCartButton({
       })
     );
 
+    setClickedOnce(true); // 👈 SWITCH BUTTON STATE
     setShowMsg(
       exists ? "Cart updated successfully" : "Added to cart"
     );
+
     setTimeout(() => setShowMsg(""), 2000);
   }
 
   return (
     <>
       <button
-        disabled={disabled}
-        onClick={handleAdd}
-        className={`mt-6 px-6 py-3 btn-brand text-white ${
-          disabled
-            ? "bg-gray-400 cursor-not-allowed"
-            : "bg-black"
-        }`}
+        disabled={disabled && !clickedOnce}
+        onClick={handleClick}
+        className={`mt-6 px-6 py-3 rounded-md font-medium transition
+          ${
+            clickedOnce
+              ? "bg-white border border-black text-black hover:bg-gray-100"
+              : disabled
+              ? "bg-gray-400 cursor-not-allowed text-white"
+              : "bg-black text-white hover:opacity-90"
+          }
+        `}
       >
-        Add to Cart
+        {clickedOnce ? "View Cart" : "Add to Cart"}
       </button>
 
       {showMsg && (
