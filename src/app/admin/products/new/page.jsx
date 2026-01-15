@@ -1,19 +1,54 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
-import Heading from "@tiptap/extension-heading";
-import Image from "@tiptap/extension-image";
 
-export default function AddProduct() {
+/* =========================
+   VARIANT GENERATOR
+========================= */
+function generateVariants(options) {
+  if (!options.length) return [];
+
+  const combine = (opts, index = 0, current = {}) => {
+    if (index === opts.length) return [current];
+
+    return opts[index].values.flatMap((v) =>
+      combine(opts, index + 1, {
+        ...current,
+        [opts[index].name]: v,
+      })
+    );
+  };
+
+  return combine(options).map((combo) => ({
+    options: combo,
+    mrp: "",
+    price: "",
+    stock: "",
+    sku: "",
+    image: "",
+  }));
+}
+
+function slugify(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
+export default function NewProductPage() {
   const router = useRouter();
 
-  /* =========================
-     STATE
-  ========================== */
+  const [categories, setCategories] = useState([]);
+  const [filterDefs, setFilterDefs] = useState([]);
+
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
   const [form, setForm] = useState({
     name: "",
     slug: "",
@@ -22,19 +57,26 @@ export default function AddProduct() {
     price: "",
     stock: "",
     images: [""],
-
     categories: [],
+    options: [],
+    variants: [],
     filters: {},
-
-    options: [{ name: "", values: [""] }],
     status: true,
   });
 
-  const [categories, setCategories] = useState([]);
-  const [filters, setFilters] = useState([]);
+  /* =========================
+     EDITOR
+  ========================== */
+  const editor = useEditor({
+    extensions: [StarterKit],
+    immediatelyRender: false,
+    onUpdate({ editor }) {
+      setForm((p) => ({ ...p, description: editor.getHTML() }));
+    },
+  });
 
   /* =========================
-     LOAD CATEGORIES & FILTERS
+     LOAD META
   ========================== */
   useEffect(() => {
     fetch("/api/admin/categories")
@@ -43,276 +85,286 @@ export default function AddProduct() {
 
     fetch("/api/admin/filters")
       .then((r) => r.json())
-      .then(setFilters);
+      .then(setFilterDefs);
   }, []);
 
   /* =========================
-     TipTap Editor
+     AUTO SLUG
   ========================== */
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      Heading.configure({ levels: [1, 2, 3] }),
-      Image.configure({ allowBase64: true }),
-    ],
-    content: "",
-    immediatelyRender: false,
-    onUpdate({ editor }) {
-      setForm((prev) => ({
-        ...prev,
-        description: editor.getHTML(),
-      }));
-    },
-  });
+  useEffect(() => {
+    if (!form.name) return;
+    if (form.slug) return; // don't overwrite if user typed slug manually
+    setForm((p) => ({ ...p, slug: slugify(p.name) }));
+    // eslint-disable-next-line
+  }, [form.name]);
 
-  /* =========================
-     HELPERS
-  ========================== */
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setForm({ ...form, [name]: value });
-  }
-
-  async function handleSubmit(e) {
+  async function saveProduct(e) {
     e.preventDefault();
+    setMsg("");
 
-    const res = await fetch("/api/admin/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        mrp: Number(form.mrp),
-        price: Number(form.price),
-        stock: Number(form.stock),
-        images: form.images.filter(Boolean),
-      }),
-    });
-
-    if (!res.ok) {
-      alert("Failed to create product");
+    if (!form.name.trim()) {
+      setMsg("Product name is required");
       return;
     }
 
-    router.push("/admin/products");
+    setSaving(true);
+
+    try {
+      const res = await fetch("/api/admin/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          mrp: Number(form.mrp),
+          price: Number(form.price),
+          stock: Number(form.stock),
+          images: (form.images || []).filter(Boolean),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMsg(data.message || "Failed to create product");
+        setSaving(false);
+        return;
+      }
+
+      setMsg("Product created successfully ✅");
+      router.push(`/admin/products`);
+    } catch (err) {
+      console.error(err);
+      setMsg("Something went wrong");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  /* =========================
-     RENDER
-  ========================== */
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold mb-6">Add Product</h1>
+    <div className="p-4 md:p-6 max-w-5xl">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Add New Product</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 border">
+        <button
+          type="button"
+          onClick={() => router.push("/admin/products")}
+          className="text-sm border px-4 py-2 rounded-md hover:bg-gray-50"
+        >
+          ← Back
+        </button>
+      </div>
+
+      <form
+        onSubmit={saveProduct}
+        className="space-y-6 bg-white p-5 md:p-6 border rounded-xl"
+      >
+        {/* MESSAGE */}
+        {msg && (
+          <div className="border rounded-md px-4 py-3 text-sm bg-gray-50">
+            {msg}
+          </div>
+        )}
 
         {/* NAME */}
         <div>
-          <label className="text-sm">Product Name</label>
+          <p className="text-sm font-medium mb-1">Product Name</p>
           <input
+            className="border p-2 w-full rounded-md"
+            placeholder="Product name"
             value={form.name}
-            onChange={(e) => {
-              setForm({
-                ...form,
-                name: e.target.value,
-                slug: e.target.value
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-"),
-              });
-            }}
-            className="w-full border p-2"
-            required
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </div>
 
         {/* SLUG */}
         <div>
-          <label className="text-sm">Slug</label>
+          <p className="text-sm font-medium mb-1">Slug</p>
           <input
-            name="slug"
+            className="border p-2 w-full rounded-md"
+            placeholder="Slug"
             value={form.slug}
-            onChange={handleChange}
-            className="w-full border p-2 bg-gray-50"
-            required
+            onChange={(e) => setForm({ ...form, slug: e.target.value })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Example: cotton-kurti
+          </p>
+        </div>
+
+        {/* PRICING */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm font-medium mb-1">MRP</p>
+            <input
+              type="number"
+              placeholder="MRP"
+              className="border p-2 rounded-md w-full"
+              value={form.mrp}
+              onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <p className="text-sm font-medium mb-1">Selling Price</p>
+            <input
+              type="number"
+              placeholder="Price"
+              className="border p-2 rounded-md w-full"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <p className="text-sm font-medium mb-1">Stock</p>
+            <input
+              type="number"
+              placeholder="Stock"
+              className="border p-2 rounded-md w-full"
+              value={form.stock}
+              onChange={(e) => setForm({ ...form, stock: e.target.value })}
+            />
+          </div>
         </div>
 
         {/* DESCRIPTION */}
         <div>
-          <label className="text-sm">Description</label>
-          <div className="border rounded">
-            <EditorContent editor={editor} className="p-3 min-h-[180px]" />
+          <p className="text-sm font-medium mb-1">Description</p>
+          <div className="border rounded-md p-3 min-h-[120px]">
+            <EditorContent editor={editor} />
           </div>
-        </div>
-
-        {/* PRICING */}
-        <div className="grid grid-cols-3 gap-4">
-          <input
-            type="number"
-            name="mrp"
-            placeholder="MRP"
-            value={form.mrp}
-            onChange={handleChange}
-            className="border p-2"
-            required
-          />
-          <input
-            type="number"
-            name="price"
-            placeholder="Selling Price"
-            value={form.price}
-            onChange={handleChange}
-            className="border p-2"
-            required
-          />
-          <input
-            type="number"
-            name="stock"
-            placeholder="Stock"
-            value={form.stock}
-            onChange={handleChange}
-            className="border p-2"
-            required
-          />
         </div>
 
         {/* IMAGES */}
         <div>
-          <label className="text-sm">Images</label>
-          {form.images.map((img, i) => (
-            <input
-              key={i}
-              value={img}
-              onChange={(e) => {
-                const images = [...form.images];
-                images[i] = e.target.value;
-                setForm({ ...form, images });
-              }}
-              className="border p-2 w-full mb-2"
-            />
-          ))}
-          <button
-            type="button"
-            onClick={() =>
-              setForm({ ...form, images: [...form.images, ""] })
-            }
-            className="text-blue-600 text-sm"
-          >
-            + Add Image
-          </button>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold">Images</p>
+            <button
+              type="button"
+              onClick={() =>
+                setForm((p) => ({ ...p, images: [...(p.images || []), ""] }))
+              }
+              className="text-sm text-blue-600"
+            >
+              + Add image
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {(form.images || []).map((img, i) => (
+              <div key={i} className="flex gap-2">
+                <input
+                  className="border p-2 w-full rounded-md"
+                  placeholder="Image URL"
+                  value={img}
+                  onChange={(e) => {
+                    const images = [...form.images];
+                    images[i] = e.target.value;
+                    setForm({ ...form, images });
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      images: form.images.filter((_, idx) => idx !== i),
+                    })
+                  }
+                  className="border px-3 rounded-md text-red-600"
+                  disabled={form.images.length === 1}
+                  title={
+                    form.images.length === 1
+                      ? "At least one image row required"
+                      : "Remove"
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* CATEGORIES */}
         <div>
-          <h3 className="font-semibold">Categories</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {categories.map((c) => (
-              <label key={c._id} className="text-sm flex gap-2">
+          <h3 className="font-semibold mb-2">Categories</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {categories.map((cat) => (
+              <label key={cat._id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={form.categories.includes(c._id)}
-                  onChange={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      categories: prev.categories.includes(c._id)
-                        ? prev.categories.filter((id) => id !== c._id)
-                        : [...prev.categories, c._id],
-                    }))
-                  }
+                  checked={form.categories.includes(cat._id)}
+                  onChange={(e) => {
+                    const updated = e.target.checked
+                      ? [...form.categories, cat._id]
+                      : form.categories.filter((id) => id !== cat._id);
+                    setForm({ ...form, categories: updated });
+                  }}
                 />
-                {c.name}
+                {cat.name}
               </label>
             ))}
           </div>
         </div>
 
-        {filters.map((f) => (
-  <div key={f._id} className="mb-3">
-    <p className="text-sm font-medium">{f.name}</p>
-
-    <div className="flex gap-3 flex-wrap">
-      {f.values.map((v, idx) => {
-        const value =
-          typeof v === "string" ? v : v.value || v.label;
-
-        const active =
-          form.filters[f.slug]?.includes(value) || false;
-
-        return (
-          <label
-            key={`${f.slug}-${value}-${idx}`}
-            className="text-sm flex gap-1"
-          >
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={() =>
-                setForm((prev) => {
-                  const current =
-                    prev.filters[f.slug] || [];
-
-                  return {
-                    ...prev,
-                    filters: {
-                      ...prev.filters,
-                      [f.slug]: active
-                        ? current.filter((x) => x !== value)
-                        : [...current, value],
-                    },
-                  };
-                })
-              }
-            />
-            {value}
-          </label>
-        );
-      })}
-    </div>
-  </div>
-))}
-
-
         {/* OPTIONS */}
         <div>
-          <h3 className="font-semibold">Product Options</h3>
+          <h3 className="font-semibold mb-2">Options</h3>
+
           {form.options.map((opt, i) => (
-            <div key={i} className="border p-3 mb-3">
+            <div key={i} className="border rounded-lg p-3 mb-3">
               <input
-                placeholder="Option Name"
+                className="border p-2 w-full mb-2 rounded-md"
+                placeholder="Option name (Size, Color)"
                 value={opt.name}
                 onChange={(e) => {
                   const options = [...form.options];
                   options[i].name = e.target.value;
                   setForm({ ...form, options });
                 }}
-                className="border p-2 w-full mb-2"
               />
 
-              {opt.values.map((v, vi) => (
-                <input
-                  key={vi}
-                  value={v}
-                  placeholder="Value"
-                  onChange={(e) => {
+              <div className="space-y-2">
+                {opt.values.map((v, vi) => (
+                  <input
+                    key={vi}
+                    className="border p-2 w-full rounded-md"
+                    placeholder="Value (S / M / L)"
+                    value={v}
+                    onChange={(e) => {
+                      const options = [...form.options];
+                      options[i].values[vi] = e.target.value;
+                      setForm({ ...form, options });
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
                     const options = [...form.options];
-                    options[i].values[vi] = e.target.value;
+                    options[i].values.push("");
                     setForm({ ...form, options });
                   }}
-                  className="border p-2 w-full mb-1"
-                />
-              ))}
+                  className="text-blue-600 text-sm"
+                >
+                  + Add value
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const options = [...form.options];
-                  options[i].values.push("");
-                  setForm({ ...form, options });
-                }}
-                className="text-blue-600 text-sm"
-              >
-                + Add Value
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const options = [...form.options];
+                    options.splice(i, 1);
+                    setForm({ ...form, options });
+                  }}
+                  className="text-red-600 text-sm"
+                >
+                  Remove option
+                </button>
+              </div>
             </div>
           ))}
 
@@ -326,24 +378,143 @@ export default function AddProduct() {
             }
             className="text-blue-600 text-sm"
           >
-            + Add Option
+            + Add option
           </button>
         </div>
 
+        {/* VARIANTS */}
+        <div>
+          <div className="flex flex-col md:flex-row md:items-center gap-2">
+            <button
+              type="button"
+              className="border px-4 py-2 rounded-md bg-gray-50 hover:bg-gray-100 text-sm"
+              onClick={() =>
+                setForm({ ...form, variants: generateVariants(form.options) })
+              }
+            >
+              Generate Variants
+            </button>
+
+            <p className="text-xs text-gray-500">
+              Create SKU-wise price/stock for all option combinations
+            </p>
+          </div>
+
+          {form.variants.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {form.variants.map((v, i) => (
+                <div
+                  key={i}
+                  className="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-6 gap-2"
+                >
+                  <div className="md:col-span-2 text-sm bg-gray-50 rounded-md p-2">
+                    {Object.entries(v.options).map(([k, val]) => (
+                      <div key={k}>
+                        <b>{k}</b>: {val}
+                      </div>
+                    ))}
+                  </div>
+
+                  <input
+                    className="border p-2 rounded-md"
+                    placeholder="MRP"
+                    value={v.mrp}
+                    onChange={(e) => {
+                      const variants = [...form.variants];
+                      variants[i].mrp = e.target.value;
+                      setForm({ ...form, variants });
+                    }}
+                  />
+                  <input
+                    className="border p-2 rounded-md"
+                    placeholder="Price"
+                    value={v.price}
+                    onChange={(e) => {
+                      const variants = [...form.variants];
+                      variants[i].price = e.target.value;
+                      setForm({ ...form, variants });
+                    }}
+                  />
+                  <input
+                    className="border p-2 rounded-md"
+                    placeholder="Stock"
+                    value={v.stock}
+                    onChange={(e) => {
+                      const variants = [...form.variants];
+                      variants[i].stock = e.target.value;
+                      setForm({ ...form, variants });
+                    }}
+                  />
+                  <input
+                    className="border p-2 rounded-md"
+                    placeholder="SKU"
+                    value={v.sku}
+                    onChange={(e) => {
+                      const variants = [...form.variants];
+                      variants[i].sku = e.target.value;
+                      setForm({ ...form, variants });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* FILTERS */}
+        <div>
+          <h3 className="font-semibold mb-2">Filters</h3>
+
+          <div className="space-y-4">
+            {filterDefs.map((f) => (
+              <div key={f._id} className="border rounded-lg p-3">
+                <p className="text-sm font-medium mb-2">{f.name}</p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {f.values.map((v) => (
+                    <label key={v.value} className="flex gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={
+                          form.filters?.[f.slug]?.includes(v.value) || false
+                        }
+                        onChange={(e) => {
+                          const current = form.filters?.[f.slug] || [];
+                          const updated = e.target.checked
+                            ? [...current, v.value]
+                            : current.filter((x) => x !== v.value);
+
+                          setForm({
+                            ...form,
+                            filters: { ...form.filters, [f.slug]: updated },
+                          });
+                        }}
+                      />
+                      {v.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* STATUS */}
-        <label className="flex gap-2">
+        <label className="flex gap-2 text-sm">
           <input
             type="checkbox"
             checked={form.status}
-            onChange={() =>
-              setForm({ ...form, status: !form.status })
-            }
+            onChange={(e) => setForm({ ...form, status: e.target.checked })}
           />
           Active
         </label>
 
-        <button className="bg-black text-white px-6 py-2">
-          Save Product
+        {/* SUBMIT */}
+        <button
+          disabled={saving}
+          className="bg-black text-white px-6 py-2 rounded-md disabled:opacity-60"
+        >
+          {saving ? "Saving..." : "Create Product"}
         </button>
       </form>
     </div>
