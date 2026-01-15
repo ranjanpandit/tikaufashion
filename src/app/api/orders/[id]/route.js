@@ -6,22 +6,11 @@ import { getCustomerFromRequest } from "@/lib/customerAuth";
 export async function GET(req, { params }) {
   await connectMongo();
 
-  const customer = await getCustomerFromRequest();
-  console.log('customer=',customer)
-  if (!customer) {
-    return NextResponse.json(
-      { message: "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
   const { id } = await params;
+  const customer = await getCustomerFromRequest();
 
-  const order = await Order.findOne({
-    _id: id,
-    customerId: customer.id, // 🔐 SECURITY
-  });
-  console.log({id,customer})
+  // 1️⃣ Fetch order by ID only
+  const order = await Order.findById(id);
 
   if (!order) {
     return NextResponse.json(
@@ -30,5 +19,22 @@ export async function GET(req, { params }) {
     );
   }
 
+  /**
+   * 2️⃣ SECURITY CHECK
+   *
+   * - If order has customerId → must match logged-in user
+   * - If order has NO customerId → allow (guest order)
+   */
+  if (order.customerId) {
+    // order belongs to a registered user
+    if (!customer || order.customerId.toString() !== customer.id) {
+      return NextResponse.json(
+        { message: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+  }
+
+  // 3️⃣ Guest order OR valid logged-in user
   return NextResponse.json(order);
 }
