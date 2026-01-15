@@ -148,21 +148,32 @@ export default function CheckoutPage() {
       items: cart,
       subtotal,
       discount,
-      coupon: coupon?.code,
+      coupon: coupon,
       total,
       paymentMethod,
     };
 
     try {
       if (paymentMethod === "COD") {
-        await fetch("/api/orders", {
+        const res = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
+        if (!res.ok) {
+          throw new Error("Failed to place order");
+        }
+
+        const data = await res.json();
+
+        if (!data.success || !data.orderId) {
+          throw new Error("Invalid order response");
+        }
+
         dispatch(clearCart());
-        router.push("/order-success");
+
+        router.push(`/order-success?orderId=${data.orderId}`);
         return;
       }
 
@@ -376,19 +387,14 @@ function ConfirmModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* BACKDROP */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onCancel}
-      />
+      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
 
       {/* MODAL */}
       <div className="relative bg-white w-full max-w-lg mx-4 rounded-xl shadow-2xl overflow-hidden">
         {/* HEADER */}
         <div className="px-6 py-4 border-b flex justify-between items-center">
           <div>
-            <h3 className="text-lg font-semibold">
-              Confirm Your Order
-            </h3>
+            <h3 className="text-lg font-semibold">Confirm Your Order</h3>
             <p className="text-sm text-gray-500">
               Please review before placing order
             </p>
@@ -421,9 +427,7 @@ function ConfirmModal({
                   </p>
                 </div>
 
-                <p className="font-medium">
-                  ₹{item.price * item.qty}
-                </p>
+                <p className="font-medium">₹{item.price * item.qty}</p>
               </div>
             ))}
           </div>
@@ -431,9 +435,7 @@ function ConfirmModal({
           {/* SUMMARY */}
           <div className="mt-5 pt-4 border-t space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-600">
-                Payment Method
-              </span>
+              <span className="text-gray-600">Payment Method</span>
               <span className="font-medium">
                 {paymentMethod === "COD"
                   ? "Cash on Delivery"
@@ -444,9 +446,7 @@ function ConfirmModal({
             {coupon && (
               <div className="flex justify-between text-green-600">
                 <span>Coupon Applied</span>
-                <span className="font-medium">
-                  {coupon} 
-                </span>
+                <span className="font-medium">{coupon}</span>
               </div>
             )}
 

@@ -9,22 +9,70 @@ export async function POST(req) {
 
   const data = await req.json();
   const customer = await getCustomerFromRequest();
-  if (data?.coupon) {
+  console.log("ORDER COUPON PATH TYPE:", Order.schema.path("coupon"));
+
+  /* =========================
+     CREATE ORDER
+  ========================== */
+  const order = await Order.create({
+    customerId: customer?.id || null,
+
+    customer: {
+      name: data.customer?.name,
+      email: data.customer?.email,
+      phone: data.customer?.phone,
+    },
+
+    address: {
+      line1: data.address?.line1,
+      city: data.address?.city,
+      state: data.address?.state,
+      pincode: data.address?.pincode,
+    },
+
+    items: data.items.map((i) => ({
+      cartId: i.cartId,
+      productId: i.productId,
+      slug: i.slug,
+      name: i.name,
+      price: i.price,
+      qty: i.qty,
+      image: i.image,
+      selectedOptions: i.selectedOptions,
+    })),
+
+    subtotal: data.subtotal,
+    discount: data.discount,
+
+    coupon: data.coupon
+      ? {
+          code: data.coupon.code,
+          couponType: data.coupon.type, // 🔥 mapped
+          value: data.coupon.value,
+        }
+      : undefined,
+
+    total: data.total,
+
+    paymentMethod: data.paymentMethod,
+    paymentStatus: data.paymentMethod === "COD" ? "pending" : "paid",
+
+    razorpayOrderId: data.razorpayOrderId || null,
+    razorpayPaymentId: data.razorpayPaymentId || null,
+  });
+
+  /* =========================
+     UPDATE COUPON USAGE
+  ========================== */
+  if (data?.coupon?.code) {
     await Coupon.updateOne(
-      { code: data.coupon },
+      { code: data.coupon.code },
       { $inc: { usedCount: 1 } }
     );
   }
-  const order = await Order.create({
-    customerId: customer?.id || null, // 🔥 KEY PART
-    customer: data.customer,
-    address: data.address,
-    items: data.items,
-    total: data.total,
-    paymentMethod: data.paymentMethod,
-    razorpayOrderId: data.razorpayOrderId,
-    razorpayPaymentId: data.razorpayPaymentId,
-  });
 
-  return NextResponse.json({ success: true, orderId: order._id });
+  return NextResponse.json({
+    success: true,
+    orderId: order._id,
+  });
 }

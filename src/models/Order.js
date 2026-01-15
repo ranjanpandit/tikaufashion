@@ -1,12 +1,22 @@
-import mongoose from "mongoose"; // ✅ THIS WAS THE MISSING / WRONG PART
+import mongoose from "mongoose";
+
+const CouponSchema = new mongoose.Schema(
+  {
+    code: String,
+    couponType: String, // 🔥 renamed from `type`
+    value: Number,
+  },
+  { _id: false }
+);
 
 const OrderSchema = new mongoose.Schema(
   {
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
-      default: null, // guest checkout
+      default: null,
     },
+
     customer: {
       name: String,
       email: String,
@@ -22,23 +32,35 @@ const OrderSchema = new mongoose.Schema(
 
     items: [
       {
+        cartId: String,
         productId: {
-          type: mongoose.Schema.Types.ObjectId, // ✅ NOW WORKS
+          type: mongoose.Schema.Types.ObjectId,
           ref: "Product",
         },
+        slug: String,
         name: String,
         price: Number,
         qty: Number,
         image: String,
+        selectedOptions: {
+          type: mongoose.Schema.Types.Mixed,
+          default: {},
+        },
       },
     ],
 
+    subtotal: Number,
+    discount: Number,
+
+    // ✅ FIXED
+    coupon: CouponSchema,
+
     total: Number,
 
-    paymentMethod: String, // COD | PREPAID
+    paymentMethod: String,
     paymentStatus: {
       type: String,
-      default: "pending", // pending | paid | failed
+      default: "pending",
     },
 
     razorpayOrderId: String,
@@ -46,11 +68,15 @@ const OrderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      default: "pending", // pending | shipped | delivered
+      default: "pending",
     },
   },
   { timestamps: true }
 );
 
-export default mongoose.models.Order ||
-  mongoose.model("Order", OrderSchema);
+// 🔥 Force model refresh (Next.js safe)
+if (mongoose.models.Order) {
+  delete mongoose.models.Order;
+}
+
+export default mongoose.model("Order", OrderSchema);
