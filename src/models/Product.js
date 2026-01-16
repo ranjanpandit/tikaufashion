@@ -39,6 +39,12 @@ const ProductSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     slug: { type: String, required: true },
+    // ✅ NEW: Product SKU / Model No
+    productSku: {
+      type: String,
+      default: "",
+      index: true,
+    },
 
     description: { type: String, default: "" },
 

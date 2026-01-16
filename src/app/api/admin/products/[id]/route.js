@@ -86,6 +86,7 @@ export async function PUT(req, { params }) {
   ========================== */
   const updateDoc = {
     name: toText(data.name).trim(),
+    sku: toText(data?.sku).trim(),
     slug: toText(data.slug).trim(),
     description: toText(data.description),
 

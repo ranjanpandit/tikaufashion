@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import ImageUploader from "@/components/admin/ImageUploader";
 
 /* =========================
    VARIANT GENERATOR
@@ -51,12 +52,13 @@ export default function NewProductPage() {
 
   const [form, setForm] = useState({
     name: "",
+    sku: "",
     slug: "",
     description: "",
     mrp: "",
     price: "",
     stock: "",
-    images: [""],
+    images: [], // ✅ now images are Cloudinary URLs
     categories: [],
     options: [],
     variants: [],
@@ -104,6 +106,11 @@ export default function NewProductPage() {
 
     if (!form.name.trim()) {
       setMsg("Product name is required");
+      return;
+    }
+
+    if (!form.images?.length) {
+      setMsg("Please upload at least 1 image");
       return;
     }
 
@@ -172,8 +179,26 @@ export default function NewProductPage() {
             className="border p-2 w-full rounded-md"
             placeholder="Product name"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, name: e.target.value })
+            }
           />
+        </div>
+
+        {/* SKU */}
+        <div>
+          <p className="text-sm font-medium mb-1">SKU</p>
+          <input
+            className="border p-2 w-full rounded-md"
+            placeholder="sku/model number"
+            value={form.sku}
+            onChange={(e) =>
+              setForm({ ...form, sku: e.target.value })
+            }
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Example: cotton-kurti
+          </p>
         </div>
 
         {/* SLUG */}
@@ -183,7 +208,9 @@ export default function NewProductPage() {
             className="border p-2 w-full rounded-md"
             placeholder="Slug"
             value={form.slug}
-            onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, slug: e.target.value })
+            }
           />
           <p className="text-xs text-gray-500 mt-1">
             Example: cotton-kurti
@@ -199,18 +226,24 @@ export default function NewProductPage() {
               placeholder="MRP"
               className="border p-2 rounded-md w-full"
               value={form.mrp}
-              onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, mrp: e.target.value })
+              }
             />
           </div>
 
           <div>
-            <p className="text-sm font-medium mb-1">Selling Price</p>
+            <p className="text-sm font-medium mb-1">
+              Selling Price
+            </p>
             <input
               type="number"
               placeholder="Price"
               className="border p-2 rounded-md w-full"
               value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, price: e.target.value })
+              }
             />
           </div>
 
@@ -221,7 +254,9 @@ export default function NewProductPage() {
               placeholder="Stock"
               className="border p-2 rounded-md w-full"
               value={form.stock}
-              onChange={(e) => setForm({ ...form, stock: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, stock: e.target.value })
+              }
             />
           </div>
         </div>
@@ -234,55 +269,82 @@ export default function NewProductPage() {
           </div>
         </div>
 
-        {/* IMAGES */}
+        {/* ✅ IMAGES (CLOUDINARY UPLOAD) */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
             <p className="text-sm font-semibold">Images</p>
-            <button
-              type="button"
-              onClick={() =>
-                setForm((p) => ({ ...p, images: [...(p.images || []), ""] }))
-              }
-              className="text-sm text-blue-600"
-            >
-              + Add image
-            </button>
+
+            <ImageUploader
+              folder="products"
+              onUpload={(url) => {
+                setForm((p) => ({
+                  ...p,
+                  images: [...(p.images || []), url],
+                }));
+              }}
+            />
           </div>
 
-          <div className="space-y-2">
-            {(form.images || []).map((img, i) => (
-              <div key={i} className="flex gap-2">
-                <input
-                  className="border p-2 w-full rounded-md"
-                  placeholder="Image URL"
-                  value={img}
-                  onChange={(e) => {
-                    const images = [...form.images];
-                    images[i] = e.target.value;
-                    setForm({ ...form, images });
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setForm({
-                      ...form,
-                      images: form.images.filter((_, idx) => idx !== i),
-                    })
-                  }
-                  className="border px-3 rounded-md text-red-600"
-                  disabled={form.images.length === 1}
-                  title={
-                    form.images.length === 1
-                      ? "At least one image row required"
-                      : "Remove"
-                  }
+          {form.images.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No images uploaded yet.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {form.images.map((img, i) => (
+                <div
+                  key={`${img}-${i}`}
+                  className="border rounded-lg overflow-hidden bg-white"
                 >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
+                  <div className="aspect-square bg-gray-50">
+                    <img
+                      src={img}
+                      alt="Product"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+
+                  <div className="p-2 flex items-center justify-between">
+                    <p className="text-xs text-gray-600">
+                      {i === 0 ? "Main" : `#${i + 1}`}
+                    </p>
+
+                    <button
+                      type="button"
+                      className="text-red-600 text-xs font-medium"
+                      onClick={() => {
+                        setForm((p) => ({
+                          ...p,
+                          images: p.images.filter((x) => x !== img),
+                        }));
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {/* OPTIONAL: Set as main */}
+                  {i !== 0 && (
+                    <button
+                      type="button"
+                      className="w-full text-xs py-2 border-t hover:bg-gray-50"
+                      onClick={() => {
+                        setForm((p) => {
+                          const imgs = [...p.images];
+                          const picked = imgs[i];
+                          imgs.splice(i, 1);
+                          imgs.unshift(picked); // ✅ make it main
+                          return { ...p, images: imgs };
+                        });
+                      }}
+                    >
+                      Set as Main
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* CATEGORIES */}
@@ -290,14 +352,19 @@ export default function NewProductPage() {
           <h3 className="font-semibold mb-2">Categories</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {categories.map((cat) => (
-              <label key={cat._id} className="flex items-center gap-2 text-sm">
+              <label
+                key={cat._id}
+                className="flex items-center gap-2 text-sm"
+              >
                 <input
                   type="checkbox"
                   checked={form.categories.includes(cat._id)}
                   onChange={(e) => {
                     const updated = e.target.checked
                       ? [...form.categories, cat._id]
-                      : form.categories.filter((id) => id !== cat._id);
+                      : form.categories.filter(
+                          (id) => id !== cat._id
+                        );
                     setForm({ ...form, categories: updated });
                   }}
                 />
@@ -373,7 +440,10 @@ export default function NewProductPage() {
             onClick={() =>
               setForm({
                 ...form,
-                options: [...form.options, { name: "", values: [""] }],
+                options: [
+                  ...form.options,
+                  { name: "", values: [""] },
+                ],
               })
             }
             className="text-blue-600 text-sm"
@@ -389,7 +459,10 @@ export default function NewProductPage() {
               type="button"
               className="border px-4 py-2 rounded-md bg-gray-50 hover:bg-gray-100 text-sm"
               onClick={() =>
-                setForm({ ...form, variants: generateVariants(form.options) })
+                setForm({
+                  ...form,
+                  variants: generateVariants(form.options),
+                })
               }
             >
               Generate Variants
@@ -468,25 +541,35 @@ export default function NewProductPage() {
           <div className="space-y-4">
             {filterDefs.map((f) => (
               <div key={f._id} className="border rounded-lg p-3">
-                <p className="text-sm font-medium mb-2">{f.name}</p>
+                <p className="text-sm font-medium mb-2">
+                  {f.name}
+                </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {f.values.map((v) => (
-                    <label key={v.value} className="flex gap-2 text-sm">
+                    <label
+                      key={v.value}
+                      className="flex gap-2 text-sm"
+                    >
                       <input
                         type="checkbox"
                         checked={
-                          form.filters?.[f.slug]?.includes(v.value) || false
+                          form.filters?.[f.slug]?.includes(v.value) ||
+                          false
                         }
                         onChange={(e) => {
-                          const current = form.filters?.[f.slug] || [];
+                          const current =
+                            form.filters?.[f.slug] || [];
                           const updated = e.target.checked
                             ? [...current, v.value]
                             : current.filter((x) => x !== v.value);
 
                           setForm({
                             ...form,
-                            filters: { ...form.filters, [f.slug]: updated },
+                            filters: {
+                              ...form.filters,
+                              [f.slug]: updated,
+                            },
                           });
                         }}
                       />
@@ -504,7 +587,9 @@ export default function NewProductPage() {
           <input
             type="checkbox"
             checked={form.status}
-            onChange={(e) => setForm({ ...form, status: e.target.checked })}
+            onChange={(e) =>
+              setForm({ ...form, status: e.target.checked })
+            }
           />
           Active
         </label>

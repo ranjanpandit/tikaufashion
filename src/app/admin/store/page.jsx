@@ -117,7 +117,8 @@ export default function AdminStorePage() {
           <div>
             <label className="text-sm font-medium">Logo</label>
             <ImageUploader
-              onUpload={(url) => setStore({ ...store, logo: url })}
+              folder="logo"
+              onUpload={(url) => setStore((p) => ({ ...p, banner: url }))}
             />
 
             {store.logo && (
@@ -134,7 +135,8 @@ export default function AdminStorePage() {
             {(store.banners || []).map((b, i) => (
               <div key={i} className="border p-4 space-y-2">
                 <ImageUploader
-                  onUpload={(url) => updateBanner(i, "image", url)}
+                  folder="banners"
+                  onUpload={(url) => setStore((p) => ({ ...p, banner: url }))}
                 />
 
                 {b.image && <img src={b.image} className="h-24 object-cover" />}

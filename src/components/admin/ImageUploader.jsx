@@ -1,20 +1,22 @@
 "use client";
 
-export default function ImageUploader({ onUpload }) {
+export default function ImageUploader({ onUpload, folder = "" }) {
   async function handleUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // 1️⃣ Get signature from backend
-    const signRes = await fetch("/api/admin/cloudinary-sign");
+    // ✅ signature API with folder support
+    const signRes = await fetch(
+      `/api/admin/cloudinary-sign?folder=${encodeURIComponent(folder)}`
+    );
     const signData = await signRes.json();
 
     if (!signRes.ok) {
-      alert("Not authorized");
+      alert(signData?.message || "Not authorized");
       return;
     }
 
-    // 2️⃣ Upload to Cloudinary
+    // Upload to Cloudinary
     const formData = new FormData();
     formData.append("file", file);
     formData.append("api_key", signData.apiKey);
@@ -37,13 +39,10 @@ export default function ImageUploader({ onUpload }) {
     } else {
       alert("Upload failed");
     }
+
+    // ✅ reset input
+    e.target.value = "";
   }
 
-  return (
-    <input
-      type="file"
-      accept="image/*"
-      onChange={handleUpload}
-    />
-  );
+  return <input type="file" accept="image/*" onChange={handleUpload} />;
 }

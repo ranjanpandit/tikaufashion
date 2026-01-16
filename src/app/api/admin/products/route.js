@@ -4,6 +4,8 @@ import Product from "@/models/Product";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
 import { ObjectId } from "mongodb";
+import "@/models/Category";
+
 
 /* =========================
    ADMIN AUTH
@@ -101,7 +103,7 @@ export async function POST(req) {
   }
 
   const slug = toText(data.slug).trim() || slugify(name);
-
+  const sku = toText(data?.sku).trim() || "";
   // categories as ObjectId[]
   const categories = Array.isArray(data.categories)
     ? data.categories.filter(Boolean).map((cid) => new ObjectId(cid))
@@ -110,6 +112,7 @@ export async function POST(req) {
   const doc = {
     name,
     slug,
+    sku,
     description: toText(data.description),
 
     mrp: toNumber(data.mrp),

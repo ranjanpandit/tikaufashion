@@ -3,7 +3,7 @@
 import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "@/store/cartSlice";
 import { nanoid } from "@reduxjs/toolkit";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function AddToCartButton({
@@ -17,24 +17,34 @@ export default function AddToCartButton({
   const cartItems = useSelector((state) => state.cart.items);
 
   const [showMsg, setShowMsg] = useState("");
-  const [clickedOnce, setClickedOnce] = useState(false); // 👈 KEY
+  const [clickedOnce, setClickedOnce] = useState(false);
 
   function hasSelectedAllOptions() {
     if (!Array.isArray(product.options) || product.options.length === 0) {
       return true;
     }
-    return product.options.every(
-      (opt) => selectedOptions?.[opt.name]
-    );
+    return product.options.every((opt) => selectedOptions?.[opt.name]);
   }
 
   const hasVariants =
-    Array.isArray(product.variants) &&
-    product.variants.length > 1;
+    Array.isArray(product.variants) && product.variants.length > 1;
 
   const disabled =
-    !hasSelectedAllOptions() ||
-    (hasVariants && !variant);
+    !hasSelectedAllOptions() || (hasVariants && !variant);
+
+  /* ✅ Variant-safe image for cart */
+  const cartImage = useMemo(() => {
+    return (
+      variant?.image ||
+      product.images?.[0] ||
+      "/no-image.png"
+    );
+  }, [variant?.image, product.images]);
+
+  /* ✅ Reset button state when user changes options/variant */
+  useEffect(() => {
+    setClickedOnce(false);
+  }, [JSON.stringify(selectedOptions), variant?._id, variant?.sku, variant?.price, variant?.image]);
 
   function handleClick() {
     /* 👉 AFTER FIRST CLICK → VIEW CART */
@@ -69,18 +79,23 @@ export default function AddToCartButton({
         productId: product._id,
         name: product.name,
         slug: product.slug,
+
+        // ✅ price based on variant
         price: variant?.price ?? product.price,
-        image: product.images?.[0],
+
+        // ✅ image based on variant (important!)
+        image: cartImage,
+
+        // ✅ save variant info (optional but useful)
+        variantSku: variant?.sku || null,
+
         selectedOptions,
         qty: 1,
       })
     );
 
-    setClickedOnce(true); // 👈 SWITCH BUTTON STATE
-    setShowMsg(
-      exists ? "Cart updated successfully" : "Added to cart"
-    );
-
+    setClickedOnce(true);
+    setShowMsg(exists ? "Cart updated successfully" : "Added to cart");
     setTimeout(() => setShowMsg(""), 2000);
   }
 

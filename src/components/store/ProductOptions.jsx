@@ -5,6 +5,7 @@ export default function ProductOptions({
   selected,
   onChange,
 }) {
+        console.log(options,selected)
   return (
     <div className="space-y-4">
       {options.map((opt) => (

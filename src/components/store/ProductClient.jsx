@@ -1,20 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import AddToCartButton from "./AddToCartButton";
 
 export default function ProductClient({ product }) {
   const [selectedOptions, setSelectedOptions] = useState({});
 
   /* =========================
-     VARIANT MATCHING
+     AUTO SELECT SINGLE OPTION
   ========================== */
-  const variant =
-    product.variants?.find((v) =>
-      Object.entries(selectedOptions).every(
-        ([key, val]) => v.options?.[key] === val
-      )
-    ) || null;
+  useEffect(() => {
+    if (
+      product.options?.length === 1 &&
+      product.options[0].values?.length === 1
+    ) {
+      setSelectedOptions({
+        [product.options[0].name]: product.options[0].values[0],
+      });
+    }
+  }, [product]);
+
+  function selectOption(optionName, value) {
+    setSelectedOptions((prev) => ({
+      ...prev,
+      [optionName]: value,
+    }));
+  }
+
+  /* =========================
+     VARIANT MATCHING (FULL MATCH ONLY)
+  ========================== */
+  const allSelected = useMemo(() => {
+    if (!Array.isArray(product.options) || product.options.length === 0)
+      return true;
+
+    return product.options.every((opt) => selectedOptions?.[opt.name]);
+  }, [product.options, selectedOptions]);
+
+  const variant = useMemo(() => {
+    if (!allSelected) return null;
+
+    return (
+      product.variants?.find((v) =>
+        Object.entries(selectedOptions).every(
+          ([key, val]) => v.options?.[key] === val
+        )
+      ) || null
+    );
+  }, [product.variants, selectedOptions, allSelected]);
+
+  /* =========================
+     IMAGE / PRICE DISPLAY
+  ========================== */
+  const displayImage =
+    variant?.image || product.images?.[0] || "/no-image.png";
 
   const price = variant?.price ?? product.price;
   const mrp = variant?.mrp ?? product.mrp;
@@ -24,35 +63,16 @@ export default function ProductClient({ product }) {
     ? Math.round(((mrp - price) / mrp) * 100)
     : 0;
 
-  function selectOption(optionName, value) {
-    setSelectedOptions((prev) => ({
-      ...prev,
-      [optionName]: value,
-    }));
-  }
-
-  /* AUTO SELECT SINGLE OPTION */
-  useEffect(() => {
-    if (
-      product.options?.length === 1 &&
-      product.options[0].values.length === 1
-    ) {
-      setSelectedOptions({
-        [product.options[0].name]: product.options[0].values[0],
-      });
-    }
-  }, [product]);
-
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10 grid md:grid-cols-2 gap-10">
+    <div className="max-w-6xl mx-auto px-4 py-8 md:py-10 grid md:grid-cols-2 gap-8 md:gap-10">
       {/* =========================
           IMAGES
       ========================== */}
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border rounded-xl overflow-hidden bg-white">
         <img
-          src={product.images?.[0]}
+          src={displayImage}
           alt={product.name}
-          className="w-full h-[520px] object-cover"
+          className="w-full h-[360px] sm:h-[420px] md:h-[520px] object-cover"
         />
       </div>
 
@@ -60,10 +80,12 @@ export default function ProductClient({ product }) {
           PRODUCT INFO
       ========================== */}
       <div>
-        <h1 className="text-2xl font-semibold">{product.name}</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold">
+          {product.name}
+        </h1>
 
         {/* PRICE BLOCK */}
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex items-center gap-3 flex-wrap">
           <span className="text-2xl font-bold text-black">
             ₹{price}
           </span>
@@ -93,6 +115,7 @@ export default function ProductClient({ product }) {
                 <p className="text-sm font-medium mb-2">
                   Select {opt.name}
                 </p>
+
                 <div className="flex gap-2 flex-wrap">
                   {opt.values.map((val) => {
                     const active = selectedOptions[opt.name] === val;
@@ -102,11 +125,11 @@ export default function ProductClient({ product }) {
                         key={val}
                         type="button"
                         onClick={() => selectOption(opt.name, val)}
-                        className={`px-4 py-2 text-sm border rounded transition
+                        className={`px-4 py-2 text-sm border rounded-lg transition
                           ${
                             active
-                              ? "border-brand bg-brand text-white"
-                              : "hover:border-brand"
+                              ? "border-black bg-black text-white"
+                              : "bg-white hover:border-black"
                           }`}
                       >
                         {val}
@@ -114,13 +137,20 @@ export default function ProductClient({ product }) {
                     );
                   })}
                 </div>
+
+                {/* ✅ helpful message if not selected */}
+                {!selectedOptions[opt.name] && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Please select {opt.name}
+                  </p>
+                )}
               </div>
             ))}
           </div>
         )}
 
         {/* TRUST BADGES */}
-        <div className="mt-6 grid grid-cols-2 gap-3 text-sm text-gray-600">
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600">
           <div>🚚 Free Shipping Above ₹999</div>
           <div>🔄 7 Days Easy Return</div>
           <div>🔒 Secure Payments</div>
