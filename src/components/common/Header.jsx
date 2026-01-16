@@ -126,23 +126,44 @@ export default function Header() {
                 Hi, {user.name.split(" ")[0]} ▾
               </button>
 
-              {userMenuOpen && (
-                <div className="absolute right-0 mt-3 w-48 bg-white border rounded-lg shadow-lg overflow-hidden">
-                  <Link
-                    href="/orders"
-                    className="block px-4 py-3 text-sm hover:bg-gray-50"
-                    onClick={() => setUserMenuOpen(false)}
-                  >
-                    My Orders
-                  </Link>
+               {userMenuOpen && (
+                <div className="absolute right-0 mt-3 w-56 bg-white border rounded-xl shadow-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b bg-gray-50">
+                    <p className="text-sm font-semibold truncate">
+                      {user?.name}
+                    </p>
+                    <p className="text-xs text-gray-600 truncate">
+                      {user?.email}
+                    </p>
+                  </div>
 
-                  <button
-                    onClick={logout}
-                    className="w-full px-4 py-3 text-sm text-left hover:bg-gray-50 flex items-center gap-2 text-red-600"
-                  >
-                    <LogOut size={14} />
-                    Logout
-                  </button>
+                  <div className="py-1">
+                    <Link
+                      href="/account/profile"
+                      className="block px-4 py-3 text-sm hover:bg-gray-50"
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      Profile & Addresses
+                    </Link>
+
+                    <Link
+                      href="/orders"
+                      className="block px-4 py-3 text-sm hover:bg-gray-50"
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      My Orders
+                    </Link>
+                  </div>
+
+                  <div className="border-t">
+                    <button
+                      onClick={logout}
+                      className="w-full px-4 py-3 text-sm text-left hover:bg-gray-50 flex items-center gap-2 text-red-600"
+                    >
+                      <LogOut size={14} />
+                      Logout
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

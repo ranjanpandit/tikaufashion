@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import ImageUploader from "@/components/admin/ImageUploader";
+import RichTextEditor from "@/components/admin/RichTextEditor";
 
 /* =========================
    VARIANT GENERATOR
@@ -60,17 +60,6 @@ export default function EditProductPage() {
   });
 
   /* =========================
-     EDITOR
-  ========================== */
-  const editor = useEditor({
-    extensions: [StarterKit],
-    immediatelyRender: false,
-    onUpdate({ editor }) {
-      setForm((p) => ({ ...p, description: editor.getHTML() }));
-    },
-  });
-
-  /* =========================
      LOAD META
   ========================== */
   useEffect(() => {
@@ -87,8 +76,6 @@ export default function EditProductPage() {
      LOAD PRODUCT
   ========================== */
   useEffect(() => {
-    if (!editor) return;
-
     fetch(`/api/admin/products/${id}`)
       .then((r) => r.json())
       .then((data) => {
@@ -113,10 +100,9 @@ export default function EditProductPage() {
           status: Boolean(data.status),
         });
 
-        editor.commands.setContent(data.description || "");
         setLoading(false);
       });
-  }, [id, editor]);
+  }, [id]);
 
   /* =========================
      SAVE
@@ -193,9 +179,7 @@ export default function EditProductPage() {
             className="border p-2 w-full rounded-md"
             placeholder="Product name"
             value={form.name}
-            onChange={(e) =>
-              setForm({ ...form, name: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </div>
 
@@ -206,9 +190,7 @@ export default function EditProductPage() {
             className="border p-2 w-full rounded-md"
             placeholder="sku"
             value={form.sku}
-            onChange={(e) =>
-              setForm({ ...form, sku: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, sku: e.target.value })}
           />
         </div>
         {/* SLUG */}
@@ -218,9 +200,7 @@ export default function EditProductPage() {
             className="border p-2 w-full rounded-md"
             placeholder="Slug"
             value={form.slug}
-            onChange={(e) =>
-              setForm({ ...form, slug: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, slug: e.target.value })}
           />
         </div>
 
@@ -231,36 +211,32 @@ export default function EditProductPage() {
             placeholder="MRP"
             className="border p-2 rounded-md"
             value={form.mrp}
-            onChange={(e) =>
-              setForm({ ...form, mrp: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, mrp: e.target.value })}
           />
           <input
             type="number"
             placeholder="Price"
             className="border p-2 rounded-md"
             value={form.price}
-            onChange={(e) =>
-              setForm({ ...form, price: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
           />
           <input
             type="number"
             placeholder="Stock"
             className="border p-2 rounded-md"
             value={form.stock}
-            onChange={(e) =>
-              setForm({ ...form, stock: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, stock: e.target.value })}
           />
         </div>
 
         {/* DESCRIPTION */}
         <div>
           <p className="font-medium mb-1">Description</p>
-          <div className="border rounded-md p-3 min-h-[120px]">
-            <EditorContent editor={editor} />
-          </div>
+
+          <RichTextEditor
+            value={form.description}
+            onChange={(html) => setForm((p) => ({ ...p, description: html }))}
+          />
         </div>
 
         {/* ✅ IMAGES UPLOAD + GRID */}
@@ -280,9 +256,7 @@ export default function EditProductPage() {
           </div>
 
           {form.images.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No images uploaded yet.
-            </p>
+            <p className="text-sm text-gray-500">No images uploaded yet.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {form.images.map((img, i) => (
@@ -345,10 +319,7 @@ export default function EditProductPage() {
           <h3 className="font-semibold mb-2">Categories</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {categories.map((cat) => (
-              <label
-                key={cat._id}
-                className="flex items-center gap-2 text-sm"
-              >
+              <label key={cat._id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={form.categories.includes(cat._id)}
@@ -427,144 +398,146 @@ export default function EditProductPage() {
         </div>
 
         {/* VARIANTS */}
-<div>
-  <div className="flex flex-col md:flex-row md:items-center gap-2">
-    <button
-      type="button"
-      className="border px-4 py-2 rounded-md bg-gray-50 hover:bg-gray-100 text-sm"
-      onClick={() =>
-        setForm({ ...form, variants: generateVariants(form.options) })
-      }
-    >
-      Generate Variants
-    </button>
+        <div>
+          <div className="flex flex-col md:flex-row md:items-center gap-2">
+            <button
+              type="button"
+              className="border px-4 py-2 rounded-md bg-gray-50 hover:bg-gray-100 text-sm"
+              onClick={() =>
+                setForm({ ...form, variants: generateVariants(form.options) })
+              }
+            >
+              Generate Variants
+            </button>
 
-    <p className="text-xs text-gray-500">
-      Create SKU-wise price/stock for all option combinations
-    </p>
-  </div>
-
-  {form.variants.length > 0 && (
-    <div className="mt-4 space-y-3">
-      {form.variants.map((v, i) => (
-        <div
-          key={i}
-          className="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-3"
-        >
-          {/* OPTIONS */}
-          <div className="md:col-span-3 text-sm bg-gray-50 rounded-md p-2">
-            {Object.entries(v.options || {}).map(([k, val]) => (
-              <div key={k}>
-                <b>{k}</b>: {val}
-              </div>
-            ))}
-          </div>
-
-          {/* PRICING */}
-          <div className="md:col-span-2">
-            <input
-              className="border p-2 rounded-md w-full"
-              placeholder="MRP"
-              value={v.mrp}
-              onChange={(e) => {
-                const variants = [...form.variants];
-                variants[i].mrp = e.target.value;
-                setForm({ ...form, variants });
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <input
-              className="border p-2 rounded-md w-full"
-              placeholder="Price"
-              value={v.price}
-              onChange={(e) => {
-                const variants = [...form.variants];
-                variants[i].price = e.target.value;
-                setForm({ ...form, variants });
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <input
-              className="border p-2 rounded-md w-full"
-              placeholder="Stock"
-              value={v.stock}
-              onChange={(e) => {
-                const variants = [...form.variants];
-                variants[i].stock = e.target.value;
-                setForm({ ...form, variants });
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-3">
-            <input
-              className="border p-2 rounded-md w-full"
-              placeholder="SKU"
-              value={v.sku}
-              onChange={(e) => {
-                const variants = [...form.variants];
-                variants[i].sku = e.target.value;
-                setForm({ ...form, variants });
-              }}
-            />
-          </div>
-
-          {/* ✅ VARIANT IMAGE */}
-          <div className="md:col-span-12 flex flex-col md:flex-row md:items-center gap-3 border-t pt-3">
-            <div className="flex items-center gap-3">
-              <div className="w-14 h-14 border rounded-md overflow-hidden bg-gray-50 flex items-center justify-center">
-                {v.image ? (
-                  <img
-                    src={v.image}
-                    alt="Variant"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xs text-gray-400">No Image</span>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <ImageUploader
-                  folder="products/variants"
-                  onUpload={(url) => {
-                    const variants = [...form.variants];
-                    variants[i].image = url;
-                    setForm({ ...form, variants });
-                  }}
-                />
-
-                {v.image && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 text-left"
-                    onClick={() => {
-                      const variants = [...form.variants];
-                      variants[i].image = "";
-                      setForm({ ...form, variants });
-                    }}
-                  >
-                    Remove Image
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* ✅ OPTIONAL NOTE */}
-            <p className="text-xs text-gray-500 md:ml-auto">
-              Variant image will override main product image on store (if you enable it)
+            <p className="text-xs text-gray-500">
+              Create SKU-wise price/stock for all option combinations
             </p>
           </div>
-        </div>
-      ))}
-    </div>
-  )}
-</div>
 
+          {form.variants.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {form.variants.map((v, i) => (
+                <div
+                  key={i}
+                  className="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-3"
+                >
+                  {/* OPTIONS */}
+                  <div className="md:col-span-3 text-sm bg-gray-50 rounded-md p-2">
+                    {Object.entries(v.options || {}).map(([k, val]) => (
+                      <div key={k}>
+                        <b>{k}</b>: {val}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* PRICING */}
+                  <div className="md:col-span-2">
+                    <input
+                      className="border p-2 rounded-md w-full"
+                      placeholder="MRP"
+                      value={v.mrp}
+                      onChange={(e) => {
+                        const variants = [...form.variants];
+                        variants[i].mrp = e.target.value;
+                        setForm({ ...form, variants });
+                      }}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <input
+                      className="border p-2 rounded-md w-full"
+                      placeholder="Price"
+                      value={v.price}
+                      onChange={(e) => {
+                        const variants = [...form.variants];
+                        variants[i].price = e.target.value;
+                        setForm({ ...form, variants });
+                      }}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <input
+                      className="border p-2 rounded-md w-full"
+                      placeholder="Stock"
+                      value={v.stock}
+                      onChange={(e) => {
+                        const variants = [...form.variants];
+                        variants[i].stock = e.target.value;
+                        setForm({ ...form, variants });
+                      }}
+                    />
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <input
+                      className="border p-2 rounded-md w-full"
+                      placeholder="SKU"
+                      value={v.sku}
+                      onChange={(e) => {
+                        const variants = [...form.variants];
+                        variants[i].sku = e.target.value;
+                        setForm({ ...form, variants });
+                      }}
+                    />
+                  </div>
+
+                  {/* ✅ VARIANT IMAGE */}
+                  <div className="md:col-span-12 flex flex-col md:flex-row md:items-center gap-3 border-t pt-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 border rounded-md overflow-hidden bg-gray-50 flex items-center justify-center">
+                        {v.image ? (
+                          <img
+                            src={v.image}
+                            alt="Variant"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-400">
+                            No Image
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <ImageUploader
+                          folder="products/variants"
+                          onUpload={(url) => {
+                            const variants = [...form.variants];
+                            variants[i].image = url;
+                            setForm({ ...form, variants });
+                          }}
+                        />
+
+                        {v.image && (
+                          <button
+                            type="button"
+                            className="text-xs text-red-600 text-left"
+                            onClick={() => {
+                              const variants = [...form.variants];
+                              variants[i].image = "";
+                              setForm({ ...form, variants });
+                            }}
+                          >
+                            Remove Image
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ✅ OPTIONAL NOTE */}
+                    <p className="text-xs text-gray-500 md:ml-auto">
+                      Variant image will override main product image on store
+                      (if you enable it)
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* FILTERS */}
         <div>
@@ -607,9 +580,7 @@ export default function EditProductPage() {
           <input
             type="checkbox"
             checked={form.status}
-            onChange={(e) =>
-              setForm({ ...form, status: e.target.checked })
-            }
+            onChange={(e) => setForm({ ...form, status: e.target.checked })}
           />
           Active
         </label>

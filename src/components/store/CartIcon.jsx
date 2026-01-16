@@ -81,12 +81,13 @@ export default function CartIcon() {
               <div className="max-h-[300px] overflow-y-auto divide-y">
                 {items.map((item) => (
                   <div key={item.cartId} className="flex gap-3 p-4 text-sm">
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      className="w-16 h-16 object-cover rounded-md border"
-                    />
-
+                    <Link href={`/product/${item.slug}`}>
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="w-16 h-16 object-cover rounded-md border"
+                      />
+                    </Link>
                     <div className="flex-1">
                       <p className="font-medium leading-tight line-clamp-2">
                         {item.name}
