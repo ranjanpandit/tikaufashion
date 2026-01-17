@@ -4,7 +4,7 @@ import { connectMongo } from "@/lib/mongodb";
 import Customer from "@/models/Customer";
 
 export async function POST(req) {
-  const { name, email, password } = await req.json();
+  const { name, email,mobile, password } = await req.json();
 
   await connectMongo();
 
@@ -21,6 +21,7 @@ export async function POST(req) {
   await Customer.create({
     name,
     email,
+    mobile,
     password: hashed,
   });
 

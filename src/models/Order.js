@@ -3,8 +3,25 @@ import mongoose from "mongoose";
 const CouponSchema = new mongoose.Schema(
   {
     code: String,
-    couponType: String, // 🔥 renamed from `type`
+    couponType: String,
     value: Number,
+    discountAmount: { type: Number, default: 0 }, // ✅ snapshot
+  },
+  { _id: false }
+);
+
+const ShippingAddressSchema = new mongoose.Schema(
+  {
+    fullName: String,
+    phone: String,
+    pincode: String,
+    line1: String,
+    line2: String,
+    city: String,
+    state: String,
+    landmark: String,
+    type: String,
+    addressId: String, // optional, reference to customer saved address
   },
   { _id: false }
 );
@@ -23,12 +40,7 @@ const OrderSchema = new mongoose.Schema(
       phone: String,
     },
 
-    address: {
-      line1: String,
-      city: String,
-      state: String,
-      pincode: String,
-    },
+    shippingAddress: ShippingAddressSchema,
 
     items: [
       {
@@ -39,7 +51,7 @@ const OrderSchema = new mongoose.Schema(
         },
         slug: String,
         name: String,
-        price: Number,
+        price: Number, // ✅ snapshot price at time of order
         qty: Number,
         image: String,
         selectedOptions: {
@@ -51,16 +63,15 @@ const OrderSchema = new mongoose.Schema(
 
     subtotal: Number,
     discount: Number,
-
-    // ✅ FIXED
     coupon: CouponSchema,
 
     total: Number,
 
-    paymentMethod: String,
+    paymentMethod: { type: String, enum: ["COD", "PREPAID"] },
     paymentStatus: {
       type: String,
-      default: "pending",
+      enum: ["PENDING", "PAID", "FAILED"],
+      default: "PENDING",
     },
 
     razorpayOrderId: String,
@@ -68,13 +79,13 @@ const OrderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      default: "pending",
+      enum: ["PLACED", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"],
+      default: "PLACED",
     },
   },
   { timestamps: true }
 );
 
-// 🔥 Force model refresh (Next.js safe)
 if (mongoose.models.Order) {
   delete mongoose.models.Order;
 }

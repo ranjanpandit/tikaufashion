@@ -71,8 +71,7 @@ export async function GET(req) {
 
   const total = await Product.countDocuments(filter);
 
-  console.log("FINAL FILTER:", JSON.stringify(filter, null, 2));
-
+  
   const products = await Product.find(filter)
     .sort(sortQuery)
     .skip(skip)

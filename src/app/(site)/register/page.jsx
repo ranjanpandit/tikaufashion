@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const [form, setForm] = useState({
     name: "",
     email: "",
+    mobile: "",
     password: "",
   });
   const [error, setError] = useState("");
@@ -46,6 +47,7 @@ export default function RegisterPage() {
 
     if (loginRes.ok) {
       router.push("/orders");
+      router.refresh(); // ✅ refresh header + auth state
     } else {
       router.push("/login");
     }
@@ -53,13 +55,9 @@ export default function RegisterPage() {
 
   return (
     <div className="max-w-md mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-4">
-        Create Account
-      </h1>
+      <h1 className="text-2xl font-bold mb-4">Create Account</h1>
 
-      {error && (
-        <p className="text-red-600 mb-3">{error}</p>
-      )}
+      {error && <p className="text-red-600 mb-3">{error}</p>}
 
       <form onSubmit={submit} className="space-y-3">
         <input
@@ -67,20 +65,23 @@ export default function RegisterPage() {
           placeholder="Full Name"
           className="border p-2 w-full"
           value={form.name}
-          onChange={(e) =>
-            setForm({ ...form, name: e.target.value })
-          }
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
         />
-
+        <input
+          required
+          type="mobile"
+          placeholder="Mobile"
+          className="border p-2 w-full"
+          value={form.mobile}
+          onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+        />
         <input
           required
           type="email"
           placeholder="Email"
           className="border p-2 w-full"
           value={form.email}
-          onChange={(e) =>
-            setForm({ ...form, email: e.target.value })
-          }
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
         />
 
         <input
@@ -89,9 +90,7 @@ export default function RegisterPage() {
           placeholder="Password"
           className="border p-2 w-full"
           value={form.password}
-          onChange={(e) =>
-            setForm({ ...form, password: e.target.value })
-          }
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
         />
 
         <button

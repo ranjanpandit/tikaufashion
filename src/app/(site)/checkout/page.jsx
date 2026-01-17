@@ -9,9 +9,13 @@ export default function CheckoutPage() {
   const router = useRouter();
   const dispatch = useDispatch();
 
-  const { items: cart, subtotal, discount, total, coupon } = useSelector(
-    (state) => state.cart
-  );
+  const {
+    items: cart,
+    subtotal,
+    discount,
+    total,
+    coupon,
+  } = useSelector((state) => state.cart);
 
   /* =========================
      STATE
@@ -20,7 +24,7 @@ export default function CheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Customer profile (auto fill)
+  // Customer profile
   const [profileLoading, setProfileLoading] = useState(true);
   const [customer, setCustomer] = useState(null);
 
@@ -30,7 +34,7 @@ export default function CheckoutPage() {
   const [addressMode, setAddressMode] = useState("SAVED"); // SAVED | NEW
   const [selectedAddressId, setSelectedAddressId] = useState("");
 
-  // If NEW address mode
+  // New address form
   const [form, setForm] = useState({
     fullName: "",
     phone: "",
@@ -46,6 +50,9 @@ export default function CheckoutPage() {
   // Coupon
   const [couponInput, setCouponInput] = useState("");
   const [couponError, setCouponError] = useState("");
+
+  // Right-side UI helpers
+  const [showItems, setShowItems] = useState(true);
 
   /* =========================
      MOUNT
@@ -71,7 +78,6 @@ export default function CheckoutPage() {
       if (res.ok) {
         setCustomer(data.customer);
 
-        // Auto fill new-address form fields with customer
         setForm((prev) => ({
           ...prev,
           fullName: data.customer?.name || prev.fullName,
@@ -132,6 +138,20 @@ export default function CheckoutPage() {
   const selectedSavedAddress = useMemo(() => {
     return addresses.find((a) => a._id === selectedAddressId) || null;
   }, [addresses, selectedAddressId]);
+
+  const canPlaceOrder = useMemo(() => {
+    if (!cart.length) return false;
+    if (addressMode === "SAVED") return !!selectedAddressId;
+
+    return (
+      form.fullName.trim() &&
+      /^\d{10}$/.test(form.phone) &&
+      /^\d{6}$/.test(form.pincode) &&
+      form.line1.trim() &&
+      form.city.trim() &&
+      form.state.trim()
+    );
+  }, [cart.length, addressMode, selectedAddressId, form]);
 
   /* =========================
      VALIDATIONS
@@ -217,9 +237,14 @@ export default function CheckoutPage() {
 
     const payload = {
       customer: {
-        name: customer?.name || form.fullName,
+        name:
+          selectedSavedAddress?.fullName ||
+          form.fullName ||
+          customer?.name ||
+          "",
         email: customer?.email || "",
-        phone: customer?.phone || form.phone,
+        phone:
+          selectedSavedAddress?.phone || form.phone || customer?.phone || "",
       },
 
       address:
@@ -287,7 +312,7 @@ export default function CheckoutPage() {
         name: "TikauFashion",
         order_id: razorpayOrder.id,
         handler: async (response) => {
-          await fetch("/api/orders", {
+          const res = await fetch("/api/orders", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -297,8 +322,14 @@ export default function CheckoutPage() {
             }),
           });
 
+          const data = await res.json();
+          if (!res.ok) {
+            alert(data?.message || "Order creation failed after payment");
+            return;
+          }
+
           dispatch(clearCart());
-          router.push("/order-success");
+          router.push(`/order-success?orderId=${data.orderId}`);
         },
       }).open();
     } catch (err) {
@@ -313,44 +344,52 @@ export default function CheckoutPage() {
      SAFE RETURNS
   ========================== */
   if (!mounted) return null;
-  if (!cart.length) return <div className="p-10 text-center">Cart is empty</div>;
+  if (!cart.length)
+    return <div className="p-10 text-center">Cart is empty</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-6">
       {/* HEADER */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Checkout</h1>
-        <p className="text-sm text-gray-600">
-          Choose delivery address and payment method
-        </p>
+      <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">Checkout</h1>
+          <p className="text-sm text-gray-600">
+            Select delivery address & payment method
+          </p>
+        </div>
+
+        <div className="text-xs text-gray-500">
+          Items: <b>{cart.length}</b>
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        {/* LEFT */}
-        <div className="md:col-span-2 space-y-5">
-          {/* CUSTOMER CARD */}
+      <div className="grid lg:grid-cols-5 gap-6">
+        {/* LEFT (3/5) */}
+        <div className="lg:col-span-3 space-y-5">
+          {/* CUSTOMER */}
           <Card title="Customer">
             {profileLoading ? (
-              <p className="text-sm text-gray-500">Loading customer details...</p>
+              <p className="text-sm text-gray-500">
+                Loading customer details...
+              </p>
             ) : customer ? (
-              <div className="text-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">{customer.name}</p>
-                    <p className="text-gray-600">{customer.email}</p>
-                    <p className="text-gray-600">{customer.phone || "-"}</p>
-                  </div>
-                  <a
-                    href="/account/profile"
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    Manage →
-                  </a>
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-sm">
+                  <p className="font-semibold">{customer.name}</p>
+                  <p className="text-gray-600">{customer.email}</p>
+                  <p className="text-gray-600">{customer.phone || "-"}</p>
                 </div>
+
+                <a
+                  href="/account/profile"
+                  className="text-sm text-blue-600 hover:underline whitespace-nowrap"
+                >
+                  Manage →
+                </a>
               </div>
             ) : (
               <p className="text-sm text-gray-600">
-                You are not logged in. You can still place order using new address.
+                Guest checkout enabled. Please add new address details.
               </p>
             )}
           </Card>
@@ -495,8 +534,64 @@ export default function CheckoutPage() {
           </Card>
         </div>
 
-        {/* RIGHT: SUMMARY */}
-        <div className="md:sticky md:top-4 h-fit">
+        {/* RIGHT (2/5) */}
+        <div className="lg:col-span-2 lg:sticky lg:top-4 h-fit space-y-4">
+          {/* ITEMS DETAILS */}
+          <div className="border rounded-2xl bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">Items ({cart.length})</h2>
+              <button
+                type="button"
+                onClick={() => setShowItems((p) => !p)}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                {showItems ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            {showItems ? (
+              <div className="max-h-[320px] overflow-y-auto pr-1 space-y-3">
+                {cart.map((item) => (
+                  <div key={item.cartId} className="flex gap-3">
+                    <img
+                      src={item.image}
+                      alt={item.name}
+                      className="w-14 h-14 rounded-lg border object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium line-clamp-1">
+                        {item.name}
+                      </p>
+
+                      {item.selectedOptions &&
+                        Object.keys(item.selectedOptions).length > 0 && (
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                            {Object.entries(item.selectedOptions)
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(" | ")}
+                          </p>
+                        )}
+
+                      <div className="flex items-center justify-between mt-1 text-xs text-gray-600">
+                        <span>
+                          ₹{item.price} × {item.qty}
+                        </span>
+                        <span className="font-semibold text-gray-900">
+                          ₹{item.price * item.qty}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Items hidden. Click “Show”.
+              </p>
+            )}
+          </div>
+
+          {/* SUMMARY */}
           <div className="border rounded-2xl bg-white p-5 shadow-sm">
             <h2 className="font-semibold text-lg mb-4">Order Summary</h2>
 
@@ -553,9 +648,8 @@ export default function CheckoutPage() {
               )}
             </div>
 
-            {/* PLACE ORDER */}
             <button
-              disabled={placing}
+              disabled={placing || !canPlaceOrder}
               className="w-full mt-5 py-3 rounded-xl bg-black text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
               onClick={() => {
                 const ok =
@@ -568,6 +662,12 @@ export default function CheckoutPage() {
               {placing ? "Placing Order..." : "Place Order"}
             </button>
 
+            {!canPlaceOrder && (
+              <p className="text-xs text-red-600 mt-2">
+                Please complete delivery address details to continue.
+              </p>
+            )}
+
             <p className="text-xs text-gray-500 mt-3">
               By placing the order, you agree to our terms and conditions.
             </p>
@@ -578,6 +678,8 @@ export default function CheckoutPage() {
       {showConfirm && (
         <ConfirmModal
           cart={cart}
+          subtotal={subtotal}
+          discount={discount}
           total={total}
           paymentMethod={paymentMethod}
           coupon={coupon?.code}
@@ -639,7 +741,12 @@ function PayOption({ checked, onChange, label, desc }) {
         checked ? "border-black bg-gray-50" : "hover:bg-gray-50"
       }`}
     >
-      <input type="radio" checked={checked} onChange={onChange} className="mt-1" />
+      <input
+        type="radio"
+        checked={checked}
+        onChange={onChange}
+        className="mt-1"
+      />
       <div>
         <p className="font-medium text-sm">{label}</p>
         <p className="text-xs text-gray-600 mt-0.5">{desc}</p>
@@ -648,97 +755,184 @@ function PayOption({ checked, onChange, label, desc }) {
   );
 }
 
-/* =========================
-   CONFIRM MODAL (Your same)
-========================= */
 function ConfirmModal({
   cart,
+  subtotal,
+  discount,
   total,
   paymentMethod,
   coupon,
   onCancel,
   onConfirm,
 }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+  // ✅ Close on ESC + lock scroll
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") onCancel?.();
+    }
 
-      <div className="relative bg-white w-full max-w-lg mx-4 rounded-xl shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b flex justify-between items-center">
+    window.addEventListener("keydown", onKeyDown);
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prev;
+    };
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-[99999] flex items-end md:items-center justify-center">
+      {/* BACKDROP */}
+      <div className="absolute inset-0 bg-black/55" onClick={onCancel} />
+
+      {/* MODAL */}
+      <div className="relative bg-white w-full md:max-w-2xl md:mx-4 rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden">
+        {/* HEADER */}
+        <div className="px-5 md:px-6 py-4 border-b bg-white flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold">Confirm Your Order</h3>
-            <p className="text-sm text-gray-500">
-              Please review before placing order
+            <h3 className="text-lg md:text-xl font-bold text-gray-900">
+              Confirm Your Order
+            </h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Please review items & payment before placing the order.
             </p>
           </div>
 
           <button
             onClick={onCancel}
-            className="text-gray-400 hover:text-black text-xl"
+            className="w-10 h-10 rounded-xl border hover:bg-gray-50 text-gray-600 flex items-center justify-center"
+            aria-label="Close"
           >
             ✕
           </button>
         </div>
 
-        <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
-          <div className="space-y-3">
-            {cart.map((item) => (
-              <div
-                key={item.cartId}
-                className="flex justify-between items-start text-sm"
-              >
-                <div className="pr-4">
-                  <p className="font-medium leading-snug line-clamp-2">
-                    {item.name}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Qty: {item.qty}
-                  </p>
-                </div>
+        {/* BODY */}
+        <div className="grid md:grid-cols-5">
+          {/* LEFT: ITEMS */}
+          <div className="md:col-span-3 px-5 md:px-6 py-4 max-h-[55vh] md:max-h-[60vh] overflow-y-auto">
+            <p className="text-sm font-semibold text-gray-900 mb-3">
+              Items ({cart.length})
+            </p>
 
-                <p className="font-medium">₹{item.price * item.qty}</p>
-              </div>
-            ))}
+            <div className="space-y-3">
+              {cart.map((item) => (
+                <div
+                  key={item.cartId}
+                  className="border rounded-2xl p-3 flex gap-3 bg-white"
+                >
+                  <img
+                    src={item.image || "/placeholder.png"}
+                    alt={item.name}
+                    className="w-16 h-16 rounded-xl border object-cover shrink-0"
+                  />
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold line-clamp-1">
+                      {item.name}
+                    </p>
+
+                    {/* OPTIONS */}
+                    {item.selectedOptions &&
+                      Object.keys(item.selectedOptions).length > 0 && (
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                          {Object.entries(item.selectedOptions)
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join(" | ")}
+                        </p>
+                      )}
+
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                      <span>
+                        ₹{item.price} × {item.qty}
+                      </span>
+
+                      <span className="text-sm font-bold text-gray-900">
+                        ₹{item.price * item.qty}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-5 pt-4 border-t space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Payment Method</span>
-              <span className="font-medium">
-                {paymentMethod === "COD" ? "Cash on Delivery" : "Online Payment"}
-              </span>
-            </div>
+          {/* RIGHT: SUMMARY */}
+          <div className="md:col-span-2 border-t md:border-t-0 md:border-l bg-gray-50 px-5 md:px-6 py-4">
+            <p className="text-sm font-semibold text-gray-900 mb-3">
+              Order Summary
+            </p>
 
-            {coupon && (
-              <div className="flex justify-between text-green-600">
-                <span>Coupon Applied</span>
-                <span className="font-medium">{coupon}</span>
+            <div className="space-y-2 text-sm">
+              <SummaryRow label="Payment Method">
+                <span className="font-medium">
+                  {paymentMethod === "COD"
+                    ? "Cash on Delivery"
+                    : "Online Payment"}
+                </span>
+              </SummaryRow>
+
+              {coupon && (
+                <SummaryRow label="Coupon Applied">
+                  <span className="text-green-700 font-semibold">{coupon}</span>
+                </SummaryRow>
+              )}
+
+              <div className="border-t my-3" />
+
+              <SummaryRow label="Subtotal">
+                <span className="font-medium">₹{subtotal}</span>
+              </SummaryRow>
+
+              {discount > 0 && (
+                <SummaryRow label="Discount">
+                  <span className="font-medium text-green-700">
+                    -₹{discount}
+                  </span>
+                </SummaryRow>
+              )}
+
+              <div className="border-t pt-3 mt-3 flex items-center justify-between">
+                <span className="font-bold text-base">Total Payable</span>
+                <span className="font-extrabold text-lg">₹{total}</span>
               </div>
-            )}
 
-            <div className="flex justify-between text-base font-semibold pt-2">
-              <span>Total Payable</span>
-              <span>₹{total}</span>
+              <p className="text-xs text-gray-500 mt-3">
+                By placing the order you agree to our terms & policies.
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t bg-gray-50 flex gap-3">
+        {/* FOOTER (Sticky) */}
+        <div className="px-5 md:px-6 py-4 border-t bg-white flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 border border-gray-300 py-3 rounded-lg text-sm font-medium hover:bg-white transition"
+            className="flex-1 border border-gray-300 py-3 rounded-2xl text-sm font-semibold hover:bg-gray-50 transition"
           >
-            Go Back
+            Edit Order
           </button>
 
           <button
             onClick={onConfirm}
-            className="flex-1 bg-black text-white py-3 rounded-lg text-sm font-medium hover:opacity-90 transition"
+            className="flex-1 bg-black text-white py-3 rounded-2xl text-sm font-semibold hover:opacity-90 transition"
           >
             Confirm & Place Order
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ✅ Small helper row */
+function SummaryRow({ label, children }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <span className="text-gray-600 text-sm">{label}</span>
+      <div className="text-right">{children}</div>
     </div>
   );
 }
