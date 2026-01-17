@@ -30,7 +30,7 @@ export default function MobileBottomNav() {
     {
       type: "link",
       label: "Categories",
-      href: "/categories",
+      href: "/category/all-products",
       icon: Grid3X3,
       isActive:
         pathname === "/categories" ||
