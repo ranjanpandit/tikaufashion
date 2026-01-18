@@ -1,0 +1,13 @@
+import mongoose from "mongoose";
+
+const NewsletterSubscriberSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    status: { type: String, enum: ["active", "unsubscribed"], default: "active" },
+    source: { type: String, default: "footer" },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.models.NewsletterSubscriber ||
+  mongoose.model("NewsletterSubscriber", NewsletterSubscriberSchema);

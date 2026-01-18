@@ -2,14 +2,18 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import CartIcon from "@/components/store/CartIcon";
 import { User, Menu, X, LogOut, ChevronDown } from "lucide-react";
+import { useSelector } from "react-redux";
 
 export default function Header() {
-  const [store, setStore] = useState(null);
+  // ✅ STORE FROM REDUX
+  const storeData = useSelector((state) => state.store?.store);
+
+  // user remains local (or later we can create authSlice)
   const [user, setUser] = useState(null);
 
   const [mounted, setMounted] = useState(false);
@@ -28,11 +32,7 @@ export default function Header() {
     setMounted(true);
     setPortalReady(true);
 
-    fetch("/api/store", { cache: "no-store" })
-      .then((r) => r.json())
-      .then(setStore)
-      .catch(() => setStore(null));
-
+    // ✅ keep only auth fetch here
     fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setUser)
@@ -89,9 +89,14 @@ export default function Header() {
 
   if (!mounted) return null;
 
-  const menu = store?.menu || [];
+  const menu = storeData?.menu || [];
+
   const logoUrl =
-    store?.logo || store?.logoUrl || store?.brandLogo || store?.image || null;
+    storeData?.logo ||
+    storeData?.logoUrl ||
+    storeData?.brandLogo ||
+    storeData?.image ||
+    null;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -122,7 +127,7 @@ export default function Header() {
                 <div className="relative w-9 h-9 rounded-xl overflow-hidden border bg-white shrink-0">
                   <Image
                     src={logoUrl}
-                    alt={store?.name || "Store Logo"}
+                    alt={storeData?.name || "Store Logo"}
                     fill
                     sizes="36px"
                     className="object-cover"
@@ -131,13 +136,13 @@ export default function Header() {
                 </div>
               ) : (
                 <div className="w-9 h-9 rounded-xl border bg-gray-50 flex items-center justify-center font-bold text-sm shrink-0">
-                  {store?.name?.slice(0, 1) || "T"}
+                  {storeData?.name?.slice(0, 1) || "T"}
                 </div>
               )}
 
               <div className="min-w-0">
                 <p className="font-bold text-base truncate">
-                  {store?.name || "TikauFashion"}
+                  {storeData?.name || "TikauFashion"}
                 </p>
                 <p className="text-[11px] text-gray-500 truncate hidden sm:block">
                   Premium Fashion Store
@@ -246,11 +251,11 @@ export default function Header() {
         </div>
       </header>
 
-      {/* ✅ MOBILE DRAWER VIA PORTAL (ENTERPRISE FIX) */}
+      {/* ✅ MOBILE DRAWER VIA PORTAL */}
       {portalReady && mobileOpen
         ? createPortal(
             <MobileDrawer
-              store={store}
+              store={storeData}
               user={user}
               menu={menu}
               pathname={pathname}
@@ -265,7 +270,7 @@ export default function Header() {
 }
 
 /* =========================
-   MOBILE DRAWER (PORTAL)
+   MOBILE DRAWER
 ========================= */
 function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
   const logoUrl =
@@ -273,10 +278,8 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
 
   return (
     <div className="fixed inset-0 z-[99999]">
-      {/* BACKDROP */}
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
 
-      {/* PANEL */}
       <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm bg-white shadow-2xl">
         <div className="p-5 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
@@ -313,7 +316,6 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
         </div>
 
         <div className="p-5 overflow-y-auto h-[calc(100%-80px)]">
-          {/* USER CARD */}
           {!user ? (
             <div className="border rounded-2xl p-4 bg-gray-50">
               <p className="font-semibold text-sm">Welcome</p>
@@ -362,7 +364,6 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
             </div>
           )}
 
-          {/* NAV */}
           <div className="mt-6">
             <p className="text-xs font-semibold text-gray-500 mb-2">Menu</p>
 

@@ -17,6 +17,8 @@ export default function AdminSidebar() {
     { name: "Coupons", href: "/admin/coupons" },
     { name: "Categories", href: "/admin/categories" },
     { name: "Filters", href: "/admin/filters" },
+    { name: "Static Pages", href: "/admin/pages" },
+
     { name: "Store", href: "/admin/store" },
   ];
 
