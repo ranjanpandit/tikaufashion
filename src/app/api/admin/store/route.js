@@ -6,24 +6,19 @@ import Store from "@/models/Store";
 import "@/models/Product"; // ✅ REQUIRED for populate
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/auth";
-
-async function requireAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return null;
-  return verifyToken(token);
-}
+import { requireAdmin } from "@/lib/adminAuth";
+import { requirePermission } from "@/lib/permission";
 
 /* =========================
    GET STORE (ADMIN)
 ========================= */
 export async function GET() {
   const admin = await requireAdmin();
-  if (!admin) {
-    return NextResponse.json(
-      { message: "Unauthorized" },
-      { status: 401 }
-    );
+  if (!admin)
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+  if (!requirePermission(admin, "store")) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
 
   await connectMongo();
@@ -50,11 +45,11 @@ export async function GET() {
 ========================= */
 export async function PUT(req) {
   const admin = await requireAdmin();
-  if (!admin) {
-    return NextResponse.json(
-      { message: "Unauthorized" },
-      { status: 401 }
-    );
+  if (!admin)
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+  if (!requirePermission(admin, "store")) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
 
   const data = await req.json();
@@ -65,9 +60,7 @@ export async function PUT(req) {
     ...new Set(
       arr
         .map((item) =>
-          typeof item === "object" && item !== null
-            ? item._id
-            : item
+          typeof item === "object" && item !== null ? item._id : item
         )
         .filter(Boolean)
         .map((id) => String(id))
@@ -111,11 +104,8 @@ export async function PUT(req) {
           preset: data.theme?.preset || "default",
           primaryColor: data.theme?.primaryColor || "#000000",
           secondaryColor: data.theme?.secondaryColor || "#666666",
-          buttonRadius:
-            data.theme?.buttonRadius || "0.375rem",
-          fontFamily:
-            data.theme?.fontFamily ||
-            "Inter, system-ui, sans-serif",
+          buttonRadius: data.theme?.buttonRadius || "0.375rem",
+          fontFamily: data.theme?.fontFamily || "Inter, system-ui, sans-serif",
         },
       },
     },
