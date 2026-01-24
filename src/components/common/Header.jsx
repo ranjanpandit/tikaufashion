@@ -2,18 +2,14 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import CartIcon from "@/components/store/CartIcon";
 import { User, Menu, X, LogOut, ChevronDown } from "lucide-react";
-import { useSelector } from "react-redux";
 
 export default function Header() {
-  // ✅ STORE FROM REDUX
-  const storeData = useSelector((state) => state.store?.store);
-
-  // user remains local (or later we can create authSlice)
+  const [store, setStore] = useState(null);
   const [user, setUser] = useState(null);
 
   const [mounted, setMounted] = useState(false);
@@ -32,12 +28,69 @@ export default function Header() {
     setMounted(true);
     setPortalReady(true);
 
-    // ✅ keep only auth fetch here
+    fetch("/api/store", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(setStore)
+      .catch(() => setStore(null));
+
     fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setUser)
       .catch(() => setUser(null));
   }, []);
+
+  /* =========================
+     NORMALIZE MENU (Enterprise Fix)
+  ========================== */
+  const menu = useMemo(() => {
+    const raw = store?.menu || [];
+
+    const normalized = (raw || [])
+      .filter((x) => x && x.label)
+      .map((x) => {
+        // ✅ Link type
+        if (x.type === "link") {
+          return {
+            label: x.label,
+            href: x.slug || "/",
+            type: "link",
+          };
+        }
+
+        // ✅ Mega type (fallback href)
+        if (x.type === "mega") {
+          const firstHref =
+            x?.columns?.[0]?.links?.[0]?.href ||
+            x?.columns?.[0]?.links?.[0]?.slug ||
+            "/";
+
+          return {
+            label: x.label,
+            href: firstHref,
+            type: "mega",
+            columns: x.columns || [],
+          };
+        }
+
+        // ✅ Default fallback
+        return {
+          label: x.label,
+          href: x.slug || "/",
+          type: x.type || "link",
+        };
+      });
+
+    // ✅ fallback menu if empty
+    if (!normalized.length) {
+      return [
+        { label: "Home", href: "/", type: "link" },
+        { label: "Shop", href: "/shop", type: "link" },
+        { label: "Contact", href: "/contact", type: "link" },
+      ];
+    }
+
+    return normalized;
+  }, [store]);
 
   /* =========================
      CLOSE USER MENU OUTSIDE CLICK
@@ -89,14 +142,8 @@ export default function Header() {
 
   if (!mounted) return null;
 
-  const menu = storeData?.menu || [];
-
   const logoUrl =
-    storeData?.logo ||
-    storeData?.logoUrl ||
-    storeData?.brandLogo ||
-    storeData?.image ||
-    null;
+    store?.logo || store?.logoUrl || store?.brandLogo || store?.image || null;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -127,7 +174,7 @@ export default function Header() {
                 <div className="relative w-9 h-9 rounded-xl overflow-hidden border bg-white shrink-0">
                   <Image
                     src={logoUrl}
-                    alt={storeData?.name || "Store Logo"}
+                    alt={store?.name || "Store Logo"}
                     fill
                     sizes="36px"
                     className="object-cover"
@@ -136,13 +183,13 @@ export default function Header() {
                 </div>
               ) : (
                 <div className="w-9 h-9 rounded-xl border bg-gray-50 flex items-center justify-center font-bold text-sm shrink-0">
-                  {storeData?.name?.slice(0, 1) || "T"}
+                  {store?.name?.slice(0, 1) || "T"}
                 </div>
               )}
 
               <div className="min-w-0">
                 <p className="font-bold text-base truncate">
-                  {storeData?.name || "TikauFashion"}
+                  {store?.name || "TikauFashion"}
                 </p>
                 <p className="text-[11px] text-gray-500 truncate hidden sm:block">
                   Premium Fashion Store
@@ -152,13 +199,13 @@ export default function Header() {
 
             {/* DESKTOP NAV */}
             <nav className="hidden md:flex flex-1 items-center justify-center gap-8">
-              {menu.map((item, i) => {
-                const href = item.slug || "#";
+              {menu.map((item) => {
+                const href = item.href || "/";
                 const active = pathname === href;
 
                 return (
                   <Link
-                    key={i}
+                    key={`${item.label}-${href}`}
                     href={href}
                     className={`text-sm font-medium transition ${
                       active ? "text-black" : "text-gray-700 hover:text-black"
@@ -255,7 +302,7 @@ export default function Header() {
       {portalReady && mobileOpen
         ? createPortal(
             <MobileDrawer
-              store={storeData}
+              store={store}
               user={user}
               menu={menu}
               pathname={pathname}
@@ -278,8 +325,10 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
 
   return (
     <div className="fixed inset-0 z-[99999]">
+      {/* BACKDROP */}
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
 
+      {/* PANEL */}
       <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm bg-white shadow-2xl">
         <div className="p-5 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
@@ -316,6 +365,7 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
         </div>
 
         <div className="p-5 overflow-y-auto h-[calc(100%-80px)]">
+          {/* USER CARD */}
           {!user ? (
             <div className="border rounded-2xl p-4 bg-gray-50">
               <p className="font-semibold text-sm">Welcome</p>
@@ -364,17 +414,18 @@ function MobileDrawer({ store, user, menu, pathname, onClose, onLogout }) {
             </div>
           )}
 
+          {/* NAV */}
           <div className="mt-6">
             <p className="text-xs font-semibold text-gray-500 mb-2">Menu</p>
 
             <nav className="space-y-2">
-              {menu.map((item, i) => {
-                const href = item.slug || "#";
+              {menu.map((item) => {
+                const href = item.href || "/";
                 const active = pathname === href;
 
                 return (
                   <Link
-                    key={i}
+                    key={`${item.label}-${href}`}
                     href={href}
                     onClick={onClose}
                     className={`block px-4 py-3 rounded-2xl border text-sm font-medium transition ${

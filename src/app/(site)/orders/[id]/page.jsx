@@ -145,6 +145,9 @@ export default async function OrderDetailsPage({ params }) {
   const discount = order?.discount ?? 0;
   const total = order?.total ?? 0;
 
+  // ✅ invoice endpoint (will return PDF)
+  const invoiceUrl = `/api/orders/${order._id}/invoice`;
+
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-6">
       {/* HEADER */}
@@ -166,8 +169,16 @@ export default async function OrderDetailsPage({ params }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* ✅ RIGHT ACTIONS */}
+        <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={order?.status} />
+
+          <a
+            href={invoiceUrl}
+            className="inline-flex items-center justify-center px-4 py-2 rounded-xl border bg-white text-sm font-semibold hover:bg-gray-50 transition"
+          >
+            Download Invoice
+          </a>
         </div>
       </div>
 
@@ -363,7 +374,8 @@ export default async function OrderDetailsPage({ params }) {
 
             {order?.razorpayOrderId && (
               <p className="text-xs text-gray-500 mt-2 break-all">
-                Razorpay Order ID: <span className="font-medium">{order.razorpayOrderId}</span>
+                Razorpay Order ID:{" "}
+                <span className="font-medium">{order.razorpayOrderId}</span>
               </p>
             )}
           </div>

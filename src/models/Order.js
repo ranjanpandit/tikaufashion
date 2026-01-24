@@ -76,6 +76,9 @@ const OrderSchema = new mongoose.Schema(
 
     razorpayOrderId: String,
     razorpayPaymentId: String,
+    razorpaySignature: String,
+    paymentVerifiedAt: Date,
+    receipt: String,
 
     status: {
       type: String,

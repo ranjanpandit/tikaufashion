@@ -74,7 +74,7 @@ export default function AdminSidebar() {
     <aside className="w-64 bg-black text-white p-6 flex flex-col">
       {/* LOGO / BRAND */}
       <div className="mb-6">
-        <div className="flex items-center gap-2">
+        {/* <div className="flex items-center gap-2">
           {store?.logo ? (
             <img
               src={store.logo}
@@ -86,7 +86,7 @@ export default function AdminSidebar() {
               {store?.name || "TikauFashion"} Admin
             </h2>
           )}
-        </div>
+        </div> */}
 
         <div className="mt-3 border-t border-white/10 pt-3">
           {loading ? (

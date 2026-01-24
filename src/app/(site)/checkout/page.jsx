@@ -9,13 +9,9 @@ export default function CheckoutPage() {
   const router = useRouter();
   const dispatch = useDispatch();
 
-  const {
-    items: cart,
-    subtotal,
-    discount,
-    total,
-    coupon,
-  } = useSelector((state) => state.cart);
+  const { items: cart, subtotal, discount, total, coupon } = useSelector(
+    (state) => state.cart
+  );
 
   /* =========================
      STATE
@@ -31,8 +27,15 @@ export default function CheckoutPage() {
   // Address book
   const [addresses, setAddresses] = useState([]);
   const [addressLoading, setAddressLoading] = useState(true);
+
   const [addressMode, setAddressMode] = useState("SAVED"); // SAVED | NEW
   const [selectedAddressId, setSelectedAddressId] = useState("");
+
+  // ✅ enterprise UX: show only selected by default
+  const [showAllAddresses, setShowAllAddresses] = useState(false);
+
+  // ✅ inside SAVED mode: allow add new without switching tab confusion
+  const [showNewAddressInline, setShowNewAddressInline] = useState(false);
 
   // New address form
   const [form, setForm] = useState({
@@ -44,6 +47,10 @@ export default function CheckoutPage() {
     state: "",
   });
 
+  // ✅ Optional inline edit support
+  const [editingAddressId, setEditingAddressId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+
   const [errors, setErrors] = useState({});
   const [paymentMethod, setPaymentMethod] = useState("COD");
 
@@ -52,7 +59,7 @@ export default function CheckoutPage() {
   const [couponError, setCouponError] = useState("");
 
   // Right-side UI helpers
-  const [showItems, setShowItems] = useState(true);
+  const [showItems, setShowItems] = useState(false);
 
   /* =========================
      MOUNT
@@ -136,13 +143,21 @@ export default function CheckoutPage() {
   }, [mounted]);
 
   const selectedSavedAddress = useMemo(() => {
-    return addresses.find((a) => a._id === selectedAddressId) || null;
+    return (
+      addresses.find((a) => a._id === selectedAddressId) ||
+      addresses.find((a) => a.isDefault) ||
+      null
+    );
   }, [addresses, selectedAddressId]);
 
   const canPlaceOrder = useMemo(() => {
     if (!cart.length) return false;
-    if (addressMode === "SAVED") return !!selectedAddressId;
 
+    // ✅ if SAVED mode and not using inline-new
+    if (addressMode === "SAVED" && !showNewAddressInline)
+      return !!selectedAddressId;
+
+    // ✅ inline NEW address OR NEW tab
     return (
       form.fullName.trim() &&
       /^\d{10}$/.test(form.phone) &&
@@ -151,7 +166,13 @@ export default function CheckoutPage() {
       form.city.trim() &&
       form.state.trim()
     );
-  }, [cart.length, addressMode, selectedAddressId, form]);
+  }, [
+    cart.length,
+    addressMode,
+    selectedAddressId,
+    showNewAddressInline,
+    form,
+  ]);
 
   /* =========================
      VALIDATIONS
@@ -174,6 +195,118 @@ export default function CheckoutPage() {
       return false;
     }
     return true;
+  }
+
+  /* =========================
+     SAVED ADDRESS: DELETE (optional)
+  ========================== */
+  async function deleteAddress(id) {
+    const ok = confirm("Delete this address?");
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/customer/addresses/${id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data?.message || "Failed to delete address");
+        return;
+      }
+
+      // refresh list
+      await loadAddresses();
+      setShowAllAddresses(false);
+    } catch (e) {
+      alert("Failed to delete address");
+    }
+  }
+
+  /* =========================
+     SAVED ADDRESS: EDIT (optional)
+  ========================== */
+  function startEditAddress(address) {
+    setEditingAddressId(address._id);
+    setEditForm({
+      fullName: address.fullName || "",
+      phone: address.phone || "",
+      pincode: address.pincode || "",
+      address1: address.address1 || "",
+      address2: address.address2 || "",
+      city: address.city || "",
+      state: address.state || "",
+      landmark: address.landmark || "",
+      type: address.type || "home",
+    });
+  }
+
+  function cancelEditAddress() {
+    setEditingAddressId(null);
+    setEditForm(null);
+  }
+
+  async function saveEditAddress() {
+    if (!editingAddressId || !editForm) return;
+
+    try {
+      const res = await fetch(`/api/customer/addresses/${editingAddressId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data?.message || "Failed to update address");
+        return;
+      }
+
+      await loadAddresses();
+      cancelEditAddress();
+    } catch (e) {
+      alert("Failed to update address");
+    }
+  }
+
+  /* =========================
+     NEW ADDRESS: SAVE (optional)
+  ========================== */
+  async function saveNewAddressToAccount() {
+    const ok = validateNewAddress();
+    if (!ok) return;
+
+    try {
+      const res = await fetch("/api/customer/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: form.fullName,
+          phone: form.phone,
+          pincode: form.pincode,
+          address1: form.line1,
+          address2: "",
+          city: form.city,
+          state: form.state,
+          type: "home",
+          isDefault: addresses.length === 0,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.message || "Failed to save address");
+        return;
+      }
+
+      await loadAddresses();
+      setShowNewAddressInline(false);
+      setAddressMode("SAVED");
+      setShowAllAddresses(false);
+      alert("Address saved ✅");
+    } catch (e) {
+      alert("Failed to save address");
+    }
   }
 
   /* =========================
@@ -230,46 +363,45 @@ export default function CheckoutPage() {
   }
 
   /* =========================
-     PLACE ORDER
+     PLACE ORDER (secure)
   ========================== */
   async function placeOrder() {
     setPlacing(true);
 
+    const shippingAddress =
+      addressMode === "SAVED" && !showNewAddressInline
+        ? {
+            fullName: selectedSavedAddress?.fullName,
+            phone: selectedSavedAddress?.phone,
+            pincode: selectedSavedAddress?.pincode,
+            line1: selectedSavedAddress?.address1,
+            line2: selectedSavedAddress?.address2 || "",
+            city: selectedSavedAddress?.city,
+            state: selectedSavedAddress?.state,
+            landmark: selectedSavedAddress?.landmark || "",
+            type: selectedSavedAddress?.type || "home",
+            addressId: selectedSavedAddress?._id || null,
+          }
+        : {
+            fullName: form.fullName,
+            phone: form.phone,
+            pincode: form.pincode,
+            line1: form.line1,
+            line2: "",
+            city: form.city,
+            state: form.state,
+            landmark: "",
+            type: "home",
+            addressId: null,
+          };
+
     const payload = {
       customer: {
-        name:
-          selectedSavedAddress?.fullName ||
-          form.fullName ||
-          customer?.name ||
-          "",
+        name: shippingAddress.fullName || customer?.name || "",
         email: customer?.email || "",
-        phone:
-          selectedSavedAddress?.phone || form.phone || customer?.phone || "",
+        phone: shippingAddress.phone || customer?.phone || "",
       },
-
-      address:
-        addressMode === "SAVED"
-          ? {
-              fullName: selectedSavedAddress?.fullName,
-              phone: selectedSavedAddress?.phone,
-              pincode: selectedSavedAddress?.pincode,
-              line1: selectedSavedAddress?.address1,
-              line2: selectedSavedAddress?.address2 || "",
-              city: selectedSavedAddress?.city,
-              state: selectedSavedAddress?.state,
-              landmark: selectedSavedAddress?.landmark || "",
-              type: selectedSavedAddress?.type || "home",
-              addressId: selectedSavedAddress?._id,
-            }
-          : {
-              fullName: form.fullName,
-              phone: form.phone,
-              pincode: form.pincode,
-              line1: form.line1,
-              city: form.city,
-              state: form.state,
-            },
-
+      shippingAddress,
       items: cart,
       subtotal,
       discount,
@@ -279,6 +411,7 @@ export default function CheckoutPage() {
     };
 
     try {
+      // ✅ COD
       if (paymentMethod === "COD") {
         const res = await fetch("/api/orders", {
           method: "POST",
@@ -294,47 +427,84 @@ export default function CheckoutPage() {
         return;
       }
 
+      // ✅ PREPAID (Secure)
       const loaded = await loadRazorpay();
       if (!loaded) throw new Error("Razorpay failed to load");
 
-      const orderRes = await fetch("/api/payment/create-order", {
+      const initRes = await fetch("/api/payment/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: total }),
+        body: JSON.stringify({
+          customer: payload.customer,
+          shippingAddress: payload.shippingAddress,
+          items: payload.items,
+          coupon: payload.coupon,
+          discount: payload.discount,
+        }),
       });
 
-      const razorpayOrder = await orderRes.json();
+      const initData = await initRes.json();
 
-      new window.Razorpay({
+      if (!initRes.ok) {
+        throw new Error(initData?.message || "Failed to start online payment");
+      }
+
+      const dbOrderId = initData.orderId;
+      const rpOrder = initData.razorpay;
+
+      const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: razorpayOrder.amount,
-        currency: "INR",
+        amount: rpOrder.amount,
+        currency: rpOrder.currency || "INR",
         name: "TikauFashion",
-        order_id: razorpayOrder.id,
-        handler: async (response) => {
-          const res = await fetch("/api/orders", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...payload,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-            }),
-          });
+        description: "Secure Online Payment",
+        order_id: rpOrder.id,
 
-          const data = await res.json();
-          if (!res.ok) {
-            alert(data?.message || "Order creation failed after payment");
-            return;
-          }
-
-          dispatch(clearCart());
-          router.push(`/order-success?orderId=${data.orderId}`);
+        prefill: {
+          name: initData.customer?.name || payload.customer.name,
+          email: initData.customer?.email || payload.customer.email,
+          contact: initData.customer?.phone || payload.customer.phone,
         },
-      }).open();
+
+        handler: async (response) => {
+          try {
+            const verifyRes = await fetch("/api/payment/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: dbOrderId,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            const verifyData = await verifyRes.json();
+
+            if (!verifyRes.ok) {
+              alert(verifyData?.message || "Payment verification failed");
+              return;
+            }
+
+            dispatch(clearCart());
+            router.push(`/order-success?orderId=${dbOrderId}`);
+          } catch (err) {
+            console.log(err);
+            alert("Payment succeeded but verification failed. Contact support.");
+          }
+        },
+
+        modal: {
+          ondismiss: () => alert("Payment cancelled"),
+        },
+
+        theme: { color: "#000000" },
+      };
+
+      new window.Razorpay(options).open();
     } catch (err) {
       console.log(err);
-      alert(err.message || "Payment failed");
+      alert(err?.message || "Payment failed");
     } finally {
       setPlacing(false);
     }
@@ -344,8 +514,7 @@ export default function CheckoutPage() {
      SAFE RETURNS
   ========================== */
   if (!mounted) return null;
-  if (!cart.length)
-    return <div className="p-10 text-center">Cart is empty</div>;
+  if (!cart.length) return <div className="p-10 text-center">Cart is empty</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-6">
@@ -354,7 +523,7 @@ export default function CheckoutPage() {
         <div>
           <h1 className="text-2xl font-bold">Checkout</h1>
           <p className="text-sm text-gray-600">
-            Select delivery address & payment method
+            Delivery details & payment selection
           </p>
         </div>
 
@@ -364,14 +533,12 @@ export default function CheckoutPage() {
       </div>
 
       <div className="grid lg:grid-cols-5 gap-6">
-        {/* LEFT (3/5) */}
+        {/* LEFT */}
         <div className="lg:col-span-3 space-y-5">
           {/* CUSTOMER */}
           <Card title="Customer">
             {profileLoading ? (
-              <p className="text-sm text-gray-500">
-                Loading customer details...
-              </p>
+              <p className="text-sm text-gray-500">Loading customer details...</p>
             ) : customer ? (
               <div className="flex items-start justify-between gap-3">
                 <div className="text-sm">
@@ -389,88 +556,357 @@ export default function CheckoutPage() {
               </div>
             ) : (
               <p className="text-sm text-gray-600">
-                Guest checkout enabled. Please add new address details.
+                Guest checkout enabled. Please add address details.
               </p>
             )}
           </Card>
 
           {/* DELIVERY ADDRESS */}
-          <Card title="Delivery Address">
-            <div className="flex gap-2 mb-3">
-              <button
-                type="button"
-                className={`px-3 py-2 rounded-lg border text-sm ${
-                  addressMode === "SAVED" ? "bg-black text-white" : "bg-white"
-                }`}
-                onClick={() => setAddressMode("SAVED")}
-                disabled={addressLoading || addresses.length === 0}
-              >
-                Saved
-              </button>
+          <Card
+            title="Delivery Address"
+            right={
+              <div className="flex gap-2">
+                <TabBtn
+                  active={addressMode === "SAVED"}
+                  disabled={addressLoading || addresses.length === 0}
+                  onClick={() => {
+                    setAddressMode("SAVED");
+                    setShowNewAddressInline(false);
+                  }}
+                >
+                  Saved
+                </TabBtn>
 
-              <button
-                type="button"
-                className={`px-3 py-2 rounded-lg border text-sm ${
-                  addressMode === "NEW" ? "bg-black text-white" : "bg-white"
-                }`}
-                onClick={() => setAddressMode("NEW")}
-              >
-                New
-              </button>
-            </div>
-
+                <TabBtn
+                  active={addressMode === "NEW"}
+                  onClick={() => {
+                    setAddressMode("NEW");
+                    setShowAllAddresses(false);
+                    setShowNewAddressInline(false);
+                  }}
+                >
+                  New
+                </TabBtn>
+              </div>
+            }
+          >
             {addressLoading ? (
               <p className="text-sm text-gray-500">Loading addresses...</p>
             ) : addressMode === "SAVED" ? (
               addresses.length === 0 ? (
-                <div className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600">
                   No saved address found. Please use New Address.
-                </div>
+                </p>
               ) : (
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {addresses.map((a) => (
-                    <label
-                      key={a._id}
-                      className={`border rounded-xl p-3 cursor-pointer transition ${
-                        selectedAddressId === a._id
-                          ? "border-black bg-gray-50"
-                          : "hover:bg-gray-50"
-                      }`}
-                    >
-                      <div className="flex gap-2">
-                        <input
-                          type="radio"
-                          checked={selectedAddressId === a._id}
-                          onChange={() => setSelectedAddressId(a._id)}
-                          className="mt-1"
-                        />
-
+                <div className="space-y-3">
+                  {/* ✅ Default view - only selected address */}
+                  {!showAllAddresses ? (
+                    <div className="border rounded-2xl p-4 bg-gray-50">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-sm truncate">
-                              {a.fullName}
-                            </p>
-                            {a.isDefault && (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                                Default
-                              </span>
-                            )}
-                          </div>
+                          <p className="font-semibold text-sm">
+                            {selectedSavedAddress?.fullName}
+                          </p>
 
                           <p className="text-xs text-gray-600 mt-1">
-                            {a.address1}
-                            {a.address2 ? `, ${a.address2}` : ""}
+                            {selectedSavedAddress?.address1}
+                            {selectedSavedAddress?.address2
+                              ? `, ${selectedSavedAddress.address2}`
+                              : ""}
+                            , {selectedSavedAddress?.city},{" "}
+                            {selectedSavedAddress?.state} -{" "}
+                            {selectedSavedAddress?.pincode}
                           </p>
-                          <p className="text-xs text-gray-600">
-                            {a.city}, {a.state} - {a.pincode}
-                          </p>
+
                           <p className="text-xs text-gray-600 mt-1">
-                            Phone: {a.phone}
+                            Phone: {selectedSavedAddress?.phone}
                           </p>
+
+                          {selectedSavedAddress?.isDefault && (
+                            <span className="inline-flex mt-2 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                              Default Address
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAllAddresses(true)}
+                            className="text-sm text-blue-600 hover:underline whitespace-nowrap"
+                          >
+                            Change
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowNewAddressInline(true)}
+                            className="text-sm text-gray-700 hover:underline whitespace-nowrap"
+                          >
+                            + Add New
+                          </button>
                         </div>
                       </div>
-                    </label>
-                  ))}
+
+                      {/* ✅ Inline NEW Address */}
+                      {showNewAddressInline && (
+                        <div className="mt-4 border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-sm font-semibold">
+                              Add New Address
+                            </p>
+                            <button
+                              type="button"
+                              className="text-sm text-gray-600 hover:underline"
+                              onClick={() => setShowNewAddressInline(false)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            <Field
+                              label="Full Name"
+                              value={form.fullName}
+                              error={errors.fullName}
+                              onChange={(v) => setForm({ ...form, fullName: v })}
+                            />
+                            <Field
+                              label="Phone"
+                              value={form.phone}
+                              error={errors.phone}
+                              onChange={(v) => setForm({ ...form, phone: v })}
+                            />
+                            <Field
+                              label="Pincode"
+                              value={form.pincode}
+                              error={errors.pincode}
+                              onChange={(v) =>
+                                setForm({ ...form, pincode: v })
+                              }
+                            />
+                            <Field
+                              label="Address Line 1"
+                              value={form.line1}
+                              error={errors.line1}
+                              onChange={(v) => setForm({ ...form, line1: v })}
+                            />
+                            <Field
+                              label="City"
+                              value={form.city}
+                              error={errors.city}
+                              onChange={(v) => setForm({ ...form, city: v })}
+                            />
+                            <Field
+                              label="State"
+                              value={form.state}
+                              error={errors.state}
+                              onChange={(v) => setForm({ ...form, state: v })}
+                            />
+                          </div>
+
+                          <div className="flex gap-2 mt-4">
+                            <button
+                              type="button"
+                              className="px-4 py-2 rounded-xl border text-sm font-semibold hover:bg-gray-50"
+                              onClick={() => setShowNewAddressInline(false)}
+                            >
+                              Close
+                            </button>
+
+                            <button
+                              type="button"
+                              className="px-4 py-2 rounded-xl bg-black text-white text-sm font-semibold hover:opacity-90"
+                              onClick={saveNewAddressToAccount}
+                            >
+                              Save Address
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {/* ✅ Expanded view */}
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-gray-900">
+                          Select Address
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAllAddresses(false);
+                            cancelEditAddress();
+                          }}
+                          className="text-sm text-gray-600 hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {addresses.map((a) => (
+                          <div
+                            key={a._id}
+                            className={`border rounded-2xl p-3 transition ${
+                              selectedAddressId === a._id
+                                ? "border-black bg-gray-50"
+                                : "hover:bg-gray-50"
+                            }`}
+                          >
+                            {/* ✅ If editing this address */}
+                            {editingAddressId === a._id && editForm ? (
+                              <div className="space-y-3">
+                                <div className="grid sm:grid-cols-2 gap-3">
+                                  <MiniField
+                                    label="Full Name"
+                                    value={editForm.fullName}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, fullName: v })
+                                    }
+                                  />
+                                  <MiniField
+                                    label="Phone"
+                                    value={editForm.phone}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, phone: v })
+                                    }
+                                  />
+                                  <MiniField
+                                    label="Pincode"
+                                    value={editForm.pincode}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, pincode: v })
+                                    }
+                                  />
+                                  <MiniField
+                                    label="City"
+                                    value={editForm.city}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, city: v })
+                                    }
+                                  />
+                                  <MiniField
+                                    label="State"
+                                    value={editForm.state}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, state: v })
+                                    }
+                                  />
+                                  <MiniField
+                                    label="Type"
+                                    value={editForm.type}
+                                    onChange={(v) =>
+                                      setEditForm({ ...editForm, type: v })
+                                    }
+                                  />
+                                </div>
+
+                                <MiniField
+                                  label="Address Line 1"
+                                  value={editForm.address1}
+                                  onChange={(v) =>
+                                    setEditForm({ ...editForm, address1: v })
+                                  }
+                                />
+                                <MiniField
+                                  label="Address Line 2"
+                                  value={editForm.address2}
+                                  onChange={(v) =>
+                                    setEditForm({ ...editForm, address2: v })
+                                  }
+                                />
+
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    className="px-3 py-2 rounded-xl border text-sm font-semibold hover:bg-gray-50"
+                                    onClick={cancelEditAddress}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="px-3 py-2 rounded-xl bg-black text-white text-sm font-semibold hover:opacity-90"
+                                    onClick={saveEditAddress}
+                                  >
+                                    Save Changes
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <label className="flex gap-3 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  checked={selectedAddressId === a._id}
+                                  onChange={() => {
+                                    setSelectedAddressId(a._id);
+                                    setShowAllAddresses(false);
+                                    cancelEditAddress();
+                                  }}
+                                  className="mt-1"
+                                />
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-semibold text-sm truncate">
+                                      {a.fullName}
+                                    </p>
+                                    {a.isDefault && (
+                                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                        Default
+                                      </span>
+                                    )}
+                                    <span className="text-[11px] text-gray-500 ml-auto">
+                                      {a.type || "home"}
+                                    </span>
+                                  </div>
+
+                                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                                    {a.address1}
+                                    {a.address2 ? `, ${a.address2}` : ""},{" "}
+                                    {a.city}, {a.state} - {a.pincode}
+                                  </p>
+
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    Phone: {a.phone}
+                                  </p>
+
+                                  {/* ✅ Actions */}
+                                  <div className="flex gap-4 mt-2 text-xs">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        startEditAddress(a);
+                                      }}
+                                      className="text-blue-600 hover:underline"
+                                    >
+                                      Edit
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        deleteAddress(a._id);
+                                      }}
+                                      className="text-red-600 hover:underline"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              </label>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )
             ) : (
@@ -515,48 +951,49 @@ export default function CheckoutPage() {
             )}
           </Card>
 
-          {/* PAYMENT */}
+          {/* ✅ PAYMENT METHOD */}
           <Card title="Payment Method">
-            <div className="space-y-2">
-              <PayOption
+            <div className="grid sm:grid-cols-2 gap-3">
+              <PayCard
                 checked={paymentMethod === "COD"}
-                label="Cash on Delivery"
+                title="Cash on Delivery"
                 desc="Pay when you receive the product"
                 onChange={() => setPaymentMethod("COD")}
+                badge="Popular"
               />
-              <PayOption
+              <PayCard
                 checked={paymentMethod === "PREPAID"}
-                label="Pay Online"
+                title="Pay Online"
                 desc="UPI / Cards / Netbanking via Razorpay"
                 onChange={() => setPaymentMethod("PREPAID")}
+                badge="Secure"
               />
             </div>
           </Card>
         </div>
 
-        {/* RIGHT (2/5) */}
+        {/* RIGHT */}
         <div className="lg:col-span-2 lg:sticky lg:top-4 h-fit space-y-4">
-          {/* ITEMS DETAILS */}
           <div className="border rounded-2xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">Items ({cart.length})</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-lg">Order Summary</h2>
               <button
                 type="button"
                 onClick={() => setShowItems((p) => !p)}
                 className="text-sm text-blue-600 hover:underline"
               >
-                {showItems ? "Hide" : "Show"}
+                {showItems ? "Hide Items" : "Show Items"}
               </button>
             </div>
 
-            {showItems ? (
-              <div className="max-h-[320px] overflow-y-auto pr-1 space-y-3">
+            {showItems && (
+              <div className="mt-4 max-h-[220px] overflow-y-auto pr-1 space-y-3 border rounded-xl p-3 bg-gray-50">
                 {cart.map((item) => (
                   <div key={item.cartId} className="flex gap-3">
                     <img
                       src={item.image}
                       alt={item.name}
-                      className="w-14 h-14 rounded-lg border object-cover"
+                      className="w-12 h-12 rounded-lg border object-cover"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium line-clamp-1">
@@ -572,30 +1009,17 @@ export default function CheckoutPage() {
                           </p>
                         )}
 
-                      <div className="flex items-center justify-between mt-1 text-xs text-gray-600">
-                        <span>
-                          ₹{item.price} × {item.qty}
-                        </span>
-                        <span className="font-semibold text-gray-900">
-                          ₹{item.price * item.qty}
-                        </span>
-                      </div>
+                      <p className="text-xs text-gray-600 mt-1">
+                        ₹{item.price} × {item.qty} ={" "}
+                        <b className="text-gray-900">₹{item.price * item.qty}</b>
+                      </p>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-sm text-gray-600">
-                Items hidden. Click “Show”.
-              </p>
             )}
-          </div>
 
-          {/* SUMMARY */}
-          <div className="border rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="font-semibold text-lg mb-4">Order Summary</h2>
-
-            <div className="space-y-2 text-sm">
+            <div className="space-y-2 text-sm mt-4">
               <Row label="Subtotal" value={`₹${subtotal}`} />
               {discount > 0 && (
                 <Row
@@ -604,10 +1028,22 @@ export default function CheckoutPage() {
                   className="text-green-700"
                 />
               )}
+
               <div className="pt-2 border-t">
                 <Row
                   label={<span className="font-semibold">Total</span>}
                   value={<span className="font-semibold">₹{total}</span>}
+                />
+              </div>
+
+              <div className="pt-2">
+                <Row
+                  label="Payment"
+                  value={
+                    <span className="text-xs px-2 py-1 rounded-full border bg-gray-50">
+                      {paymentMethod === "COD" ? "COD" : "ONLINE"}
+                    </span>
+                  }
                 />
               </div>
             </div>
@@ -653,13 +1089,18 @@ export default function CheckoutPage() {
               className="w-full mt-5 py-3 rounded-xl bg-black text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
               onClick={() => {
                 const ok =
-                  addressMode === "SAVED"
+                  addressMode === "SAVED" && !showNewAddressInline
                     ? validateSavedAddress()
                     : validateNewAddress();
+
                 if (ok) setShowConfirm(true);
               }}
             >
-              {placing ? "Placing Order..." : "Place Order"}
+              {placing
+                ? "Processing..."
+                : paymentMethod === "COD"
+                ? "Place COD Order"
+                : "Pay Securely"}
             </button>
 
             {!canPlaceOrder && (
@@ -669,7 +1110,7 @@ export default function CheckoutPage() {
             )}
 
             <p className="text-xs text-gray-500 mt-3">
-              By placing the order, you agree to our terms and conditions.
+              By placing the order, you agree to our terms & policies.
             </p>
           </div>
         </div>
@@ -698,14 +1139,30 @@ export default function CheckoutPage() {
    COMPONENTS
 ========================= */
 
-function Card({ title, children }) {
+function Card({ title, right, children }) {
   return (
     <div className="border rounded-2xl bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-3">
         <h2 className="font-semibold">{title}</h2>
+        {right}
       </div>
       {children}
     </div>
+  );
+}
+
+function TabBtn({ active, disabled, onClick, children }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+        active ? "bg-black text-white border-black" : "bg-white hover:bg-gray-50"
+      } disabled:opacity-50`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -725,6 +1182,19 @@ function Field({ label, value, onChange, error }) {
   );
 }
 
+function MiniField({ label, value, onChange }) {
+  return (
+    <div>
+      <label className="text-[11px] font-medium text-gray-600">{label}</label>
+      <input
+        className="mt-1 w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
 function Row({ label, value, className = "" }) {
   return (
     <div className={`flex justify-between ${className}`}>
@@ -734,26 +1204,39 @@ function Row({ label, value, className = "" }) {
   );
 }
 
-function PayOption({ checked, onChange, label, desc }) {
+function PayCard({ checked, onChange, title, desc, badge }) {
   return (
     <label
-      className={`border rounded-xl p-3 cursor-pointer flex items-start gap-2 ${
+      className={`border rounded-2xl p-4 cursor-pointer transition ${
         checked ? "border-black bg-gray-50" : "hover:bg-gray-50"
       }`}
     >
-      <input
-        type="radio"
-        checked={checked}
-        onChange={onChange}
-        className="mt-1"
-      />
-      <div>
-        <p className="font-medium text-sm">{label}</p>
-        <p className="text-xs text-gray-600 mt-0.5">{desc}</p>
+      <div className="flex items-start gap-3">
+        <input
+          type="radio"
+          checked={checked}
+          onChange={onChange}
+          className="mt-1"
+        />
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-sm">{title}</p>
+            {badge && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full border bg-white text-gray-700">
+                {badge}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-600 mt-1">{desc}</p>
+        </div>
       </div>
     </label>
   );
 }
+
+/* =========================
+   Confirm Modal (same)
+========================= */
 
 function ConfirmModal({
   cart,
@@ -765,7 +1248,6 @@ function ConfirmModal({
   onCancel,
   onConfirm,
 }) {
-  // ✅ Close on ESC + lock scroll
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === "Escape") onCancel?.();
@@ -784,12 +1266,9 @@ function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-[99999] flex items-end md:items-center justify-center">
-      {/* BACKDROP */}
       <div className="absolute inset-0 bg-black/55" onClick={onCancel} />
 
-      {/* MODAL */}
       <div className="relative bg-white w-full md:max-w-2xl md:mx-4 rounded-t-3xl md:rounded-3xl shadow-2xl overflow-hidden">
-        {/* HEADER */}
         <div className="px-5 md:px-6 py-4 border-b bg-white flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg md:text-xl font-bold text-gray-900">
@@ -809,9 +1288,7 @@ function ConfirmModal({
           </button>
         </div>
 
-        {/* BODY */}
         <div className="grid md:grid-cols-5">
-          {/* LEFT: ITEMS */}
           <div className="md:col-span-3 px-5 md:px-6 py-4 max-h-[55vh] md:max-h-[60vh] overflow-y-auto">
             <p className="text-sm font-semibold text-gray-900 mb-3">
               Items ({cart.length})
@@ -828,13 +1305,11 @@ function ConfirmModal({
                     alt={item.name}
                     className="w-16 h-16 rounded-xl border object-cover shrink-0"
                   />
-
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold line-clamp-1">
                       {item.name}
                     </p>
 
-                    {/* OPTIONS */}
                     {item.selectedOptions &&
                       Object.keys(item.selectedOptions).length > 0 && (
                         <p className="text-xs text-gray-500 mt-1 line-clamp-1">
@@ -859,7 +1334,6 @@ function ConfirmModal({
             </div>
           </div>
 
-          {/* RIGHT: SUMMARY */}
           <div className="md:col-span-2 border-t md:border-t-0 md:border-l bg-gray-50 px-5 md:px-6 py-4">
             <p className="text-sm font-semibold text-gray-900 mb-3">
               Order Summary
@@ -906,7 +1380,6 @@ function ConfirmModal({
           </div>
         </div>
 
-        {/* FOOTER (Sticky) */}
         <div className="px-5 md:px-6 py-4 border-t bg-white flex gap-3">
           <button
             onClick={onCancel}
@@ -927,7 +1400,6 @@ function ConfirmModal({
   );
 }
 
-/* ✅ Small helper row */
 function SummaryRow({ label, children }) {
   return (
     <div className="flex items-start justify-between gap-4">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ShoppingBag,
   IndianRupee,
@@ -8,9 +9,13 @@ import {
   PackageCheck,
   RefreshCcw,
   AlertTriangle,
+  ArrowUpRight,
+  Wallet,
 } from "lucide-react";
 
 export default function AdminDashboard() {
+  const router = useRouter();
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -18,11 +23,9 @@ export default function AdminDashboard() {
   const loadDashboard = async () => {
     setErr("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/admin/dashboard", {
-        cache: "no-store",
-      });
 
+    try {
+      const res = await fetch("/api/admin/dashboard", { cache: "no-store" });
       const json = await res.json();
 
       if (!res.ok) {
@@ -53,45 +56,47 @@ export default function AdminDashboard() {
   }, [data]);
 
   const codCount = useMemo(() => {
-    return (
-      data?.recentOrders?.filter((o) => o.paymentMethod === "COD").length || 0
-    );
+    return data?.recentOrders?.filter((o) => o.paymentMethod === "COD").length || 0;
   }, [data]);
 
   const prepaidCount = useMemo(() => {
-    return (
-      data?.recentOrders?.filter((o) => o.paymentMethod === "PREPAID").length ||
-      0
-    );
+    return data?.recentOrders?.filter((o) => o.paymentMethod === "PREPAID").length || 0;
   }, [data]);
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
+  if (loading) return <DashboardSkeleton />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-gray-500">
-            Overview of orders, revenue and delivery status.
+            Monitor orders, revenue and delivery status in real time.
           </p>
         </div>
 
-        <button
-          onClick={loadDashboard}
-          className="inline-flex items-center gap-2 border px-3 py-2 rounded bg-white hover:bg-gray-50 text-sm"
-        >
-          <RefreshCcw size={16} />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push("/admin/orders")}
+            className="inline-flex items-center gap-2 border px-3 py-2 rounded bg-white hover:bg-gray-50 text-sm"
+          >
+            View Orders <ArrowUpRight size={16} />
+          </button>
+
+          <button
+            onClick={loadDashboard}
+            className="inline-flex items-center gap-2 border px-3 py-2 rounded bg-white hover:bg-gray-50 text-sm"
+          >
+            <RefreshCcw size={16} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Error */}
       {err && (
-        <div className="border border-red-200 bg-red-50 text-red-700 rounded p-3 flex items-start gap-2">
+        <div className="border border-red-200 bg-red-50 text-red-700 rounded-lg p-4 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div className="text-sm">
             <p className="font-semibold">Dashboard Error</p>
@@ -100,61 +105,72 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Stats */}
+      {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <MetricCard
+        <KpiCard
           title="Total Orders"
           value={data?.totalOrders || 0}
+          subText="All time"
           icon={<ShoppingBag size={18} />}
         />
-        <MetricCard
+        <KpiCard
           title="Today's Orders"
           value={data?.todayOrders || 0}
+          subText="Today"
           icon={<ShoppingBag size={18} />}
         />
-        <MetricCard
+        <KpiCard
           title="Total Revenue"
           value={`₹ ${formatINR(data?.totalRevenue || 0)}`}
+          subText="All time"
           icon={<IndianRupee size={18} />}
         />
-        <MetricCard
+        <KpiCard
           title="Pending Orders"
           value={statusMap?.pending || 0}
+          subText="Needs action"
           icon={<Truck size={18} />}
         />
       </div>
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatusCard
+        <MiniCard
           title="Shipped"
           value={statusMap?.shipped || 0}
           icon={<Truck size={18} />}
-          badge="In Transit"
+          badge="In transit"
         />
-        <StatusCard
+        <MiniCard
           title="Delivered"
           value={statusMap?.delivered || 0}
           icon={<PackageCheck size={18} />}
           badge="Completed"
         />
-        <StatusCard
+        <MiniCard
           title="Payment Mix"
           value={`${codCount} / ${prepaidCount}`}
-          icon={<IndianRupee size={18} />}
+          icon={<Wallet size={18} />}
           badge="COD / Prepaid"
         />
       </div>
 
       {/* Recent Orders */}
-      <div className="bg-white border rounded-lg overflow-hidden">
-        <div className="p-4 border-b flex items-center justify-between">
+      <div className="bg-white border rounded-xl overflow-hidden">
+        <div className="p-4 border-b flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Recent Orders</h2>
             <p className="text-sm text-gray-500">
-              Latest transactions and order updates.
+              Click any order row to open order details.
             </p>
           </div>
+
+          <button
+            onClick={() => router.push("/admin/orders")}
+            className="text-sm border px-3 py-2 rounded bg-white hover:bg-gray-50 inline-flex items-center gap-2"
+          >
+            View all <ArrowUpRight size={16} />
+          </button>
         </div>
 
         {!data?.recentOrders?.length ? (
@@ -171,24 +187,45 @@ export default function AdminDashboard() {
                   <th className="text-left font-medium p-3">Amount</th>
                   <th className="text-left font-medium p-3">Payment</th>
                   <th className="text-left font-medium p-3">Status</th>
+                  <th className="text-left font-medium p-3">Date</th>
+                  <th className="text-right font-medium p-3">Action</th>
                 </tr>
               </thead>
 
               <tbody>
                 {data.recentOrders.map((o) => (
-                  <tr key={o._id} className="border-t hover:bg-gray-50">
-                    <td className="p-3 font-medium">
+                  <tr
+                    key={o._id}
+                    className="border-t hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/admin/orders/${o._id}`)} // ✅ click row
+                  >
+                    <td className="p-3 font-semibold">
                       #{String(o._id).slice(-6)}
                     </td>
+
                     <td className="p-3">{o?.customer?.name || "-"}</td>
+
                     <td className="p-3">₹ {formatINR(o?.total || 0)}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-1 rounded border bg-white text-xs">
-                        {o?.paymentMethod || "-"}
-                      </span>
+
+                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <PaymentBadge value={o?.paymentMethod} />
                     </td>
+
                     <td className="p-3">
                       <StatusPill value={o?.status} />
+                    </td>
+
+                    <td className="p-3 text-gray-600">
+                      {o?.createdAt ? formatDate(o.createdAt) : "-"}
+                    </td>
+
+                    <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="border px-3 py-1 rounded text-xs bg-white hover:bg-gray-50 inline-flex items-center gap-1"
+                        onClick={() => router.push(`/admin/orders/${o._id}`)}
+                      >
+                        Open <ArrowUpRight size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -203,29 +240,33 @@ export default function AdminDashboard() {
 
 /* -------------------------------- UI COMPONENTS -------------------------------- */
 
-function MetricCard({ title, value, icon }) {
+function KpiCard({ title, value, subText, icon }) {
   return (
-    <div className="bg-white border rounded-lg p-4 flex items-start justify-between">
-      <div>
-        <p className="text-xs text-gray-500">{title}</p>
-        <p className="text-2xl font-bold mt-1">{value}</p>
-      </div>
-      <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
-        {icon}
+    <div className="bg-white border rounded-xl p-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-gray-500">{title}</p>
+          <p className="text-2xl font-bold mt-1">{value}</p>
+          <p className="text-xs text-gray-500 mt-2">{subText}</p>
+        </div>
+
+        <div className="h-10 w-10 rounded-xl bg-gray-100 flex items-center justify-center">
+          {icon}
+        </div>
       </div>
     </div>
   );
 }
 
-function StatusCard({ title, value, icon, badge }) {
+function MiniCard({ title, value, icon, badge }) {
   return (
-    <div className="bg-white border rounded-lg p-4 flex items-start justify-between">
+    <div className="bg-white border rounded-xl p-4 flex items-start justify-between">
       <div>
         <p className="text-xs text-gray-500">{title}</p>
         <p className="text-2xl font-bold mt-1">{value}</p>
         <p className="text-xs text-gray-500 mt-2">{badge}</p>
       </div>
-      <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
+      <div className="h-10 w-10 rounded-xl bg-gray-100 flex items-center justify-center">
         {icon}
       </div>
     </div>
@@ -250,6 +291,21 @@ function StatusPill({ value }) {
   );
 }
 
+function PaymentBadge({ value }) {
+  const v = String(value || "-").toUpperCase();
+
+  const cls =
+    v === "COD"
+      ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+      : "bg-green-50 text-green-700 border-green-200";
+
+  return (
+    <span className={`px-2 py-1 rounded border text-xs ${cls}`}>
+      {v}
+    </span>
+  );
+}
+
 function DashboardSkeleton() {
   return (
     <div className="p-6 space-y-6">
@@ -260,21 +316,28 @@ function DashboardSkeleton() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white border rounded-lg p-4 space-y-3"
-          >
+          <div key={i} className="bg-white border rounded-xl p-4 space-y-3">
             <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
             <div className="h-7 w-20 bg-gray-200 rounded animate-pulse" />
-            <div className="h-10 w-10 bg-gray-200 rounded-lg animate-pulse ml-auto" />
+            <div className="h-10 w-10 bg-gray-200 rounded-xl animate-pulse ml-auto" />
           </div>
         ))}
       </div>
 
-      <div className="bg-white border rounded-lg p-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="bg-white border rounded-xl p-4 space-y-3">
+            <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
+            <div className="h-7 w-20 bg-gray-200 rounded animate-pulse" />
+            <div className="h-3 w-32 bg-gray-200 rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white border rounded-xl p-4">
         <div className="h-4 w-36 bg-gray-200 rounded animate-pulse" />
         <div className="h-4 w-60 bg-gray-200 rounded animate-pulse mt-2" />
-        <div className="h-32 bg-gray-200 rounded animate-pulse mt-5" />
+        <div className="h-40 bg-gray-200 rounded animate-pulse mt-5" />
       </div>
     </div>
   );
@@ -287,5 +350,19 @@ function formatINR(value) {
     return Number(value).toLocaleString("en-IN");
   } catch {
     return value;
+  }
+}
+
+function formatDate(date) {
+  try {
+    return new Date(date).toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "-";
   }
 }

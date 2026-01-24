@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import Razorpay from "razorpay";
 import { connectMongo } from "@/lib/mongodb";
 import Order from "@/models/Order";
 import Coupon from "@/models/Coupon";
@@ -6,7 +7,7 @@ import Product from "@/models/Product";
 import { getCustomerFromRequest } from "@/lib/customerAuth";
 
 /* =========================
-   ✅ COUPON LOGIC (same as cartSlice)
+   ✅ EXACT CARTSLICE LOGIC
 ========================= */
 function calculateDiscount(subtotal, coupon) {
   if (!coupon) return 0;
@@ -25,17 +26,14 @@ function calculateDiscount(subtotal, coupon) {
   }
 
   const maxDiscount = Number(coupon.maxDiscount || 0);
-  if (maxDiscount) {
-    discount = Math.min(discount, maxDiscount);
-  }
+  if (maxDiscount) discount = Math.min(discount, maxDiscount);
 
   discount = Math.min(discount, subtotal);
-
   return Math.round(discount);
 }
 
 /* =========================
-   ✅ VARIANT HELPERS
+   ✅ VARIANT MATCH (SECURE)
 ========================= */
 function normalizeOptions(obj = {}) {
   const out = {};
@@ -57,7 +55,6 @@ function isSameOptions(a = {}, b = {}) {
   for (const key of aKeys) {
     if (A[key] !== B[key]) return false;
   }
-
   return true;
 }
 
@@ -77,45 +74,20 @@ export async function POST(req) {
     const data = await req.json();
     const customer = await getCustomerFromRequest();
 
+    const paymentMethod = "PREPAID";
+
     if (!data?.items?.length) {
-      return NextResponse.json(
-        { success: false, message: "Cart items missing" },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: "Cart items missing" }, { status: 400 });
     }
 
-    const paymentMethod = String(data.paymentMethod || "COD").toUpperCase();
-
-    if (!["COD", "PREPAID"].includes(paymentMethod)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid payment method" },
-        { status: 400 }
-      );
-    }
-
-    /* =========================
-       ✅ SHIPPING ADDRESS
-       ✅ Support both keys:
-          - shippingAddress (new correct)
-          - address (old)
-    ========================== */
+    // ✅ Validate shipping address
     const shipping = data?.shippingAddress || data?.address || {};
-
-    if (
-      !shipping?.line1 ||
-      !shipping?.city ||
-      !shipping?.state ||
-      !shipping?.pincode
-    ) {
-      return NextResponse.json(
-        { success: false, message: "Delivery address missing" },
-        { status: 400 }
-      );
+    if (!shipping?.line1 || !shipping?.city || !shipping?.state || !shipping?.pincode) {
+      return NextResponse.json({ message: "Delivery address missing" }, { status: 400 });
     }
 
     /* =========================
-       ✅ SERVER SIDE TOTAL CALC
-       ✅ (variant price aware)
+       ✅ Server-side pricing (variant based)
     ========================== */
     let items = [];
     let serverSubtotal = 0;
@@ -126,45 +98,34 @@ export async function POST(req) {
       );
 
       if (!product) {
-        return NextResponse.json(
-          { success: false, message: "Some products not found" },
-          { status: 400 }
-        );
+        return NextResponse.json({ message: "Some products not found" }, { status: 400 });
       }
 
       const qty = Number(i.qty || 1);
       if (qty <= 0) {
-        return NextResponse.json(
-          { success: false, message: "Invalid quantity" },
-          { status: 400 }
-        );
+        return NextResponse.json({ message: "Invalid quantity" }, { status: 400 });
       }
 
       const selectedOptions = i.selectedOptions || {};
 
-      // ✅ If options were selected, price should come from variant
+      // ✅ Pick variant price if options exist
       const variant = findMatchingVariant(product, selectedOptions);
 
-      // ✅ If selectedOptions exists but variant not found => reject
       if (Object.keys(selectedOptions).length > 0 && !variant) {
         return NextResponse.json(
           {
-            success: false,
-            message: `Invalid variant selected for: ${product.name}`,
+            message: `Invalid variant selected for product: ${product.name}`,
             selectedOptions,
           },
           { status: 400 }
         );
       }
 
-      // ✅ final price = variant.price if matched else product.price
-      const finalPrice = Number(variant?.price ?? product.price);
-
-      // ✅ image from variant first
+      const finalUnitPrice = Number(variant?.price ?? product.price);
       const finalImage =
         variant?.image || i.image || product?.images?.[0] || "";
 
-      const lineTotal = finalPrice * qty;
+      const lineTotal = finalUnitPrice * qty;
       serverSubtotal += lineTotal;
 
       items.push({
@@ -172,7 +133,7 @@ export async function POST(req) {
         productId: i.productId,
         slug: product.slug,
         name: product.name,
-        price: finalPrice, // ✅ snapshot final price (variant aware)
+        price: finalUnitPrice, // ✅ snapshot variant price
         qty,
         image: finalImage,
         selectedOptions,
@@ -180,15 +141,12 @@ export async function POST(req) {
     }
 
     /* =========================
-       ✅ COUPON VALIDATION (DB)
+       ✅ Coupon validation (DB)
     ========================== */
     let couponDoc = null;
     let couponDiscount = 0;
 
-    const couponCode = String(data?.coupon?.code || "")
-      .trim()
-      .toUpperCase();
-
+    const couponCode = String(data?.coupon?.code || "").trim().toUpperCase();
     if (couponCode) {
       couponDoc = await Coupon.findOne({ code: couponCode });
 
@@ -202,36 +160,35 @@ export async function POST(req) {
     }
 
     const serverTotal = Math.max(serverSubtotal - couponDiscount, 0);
-
+    // console.log({serverSubtotal,couponDiscount,serverTotal})
     if (serverTotal <= 0) {
-      return NextResponse.json(
-        { success: false, message: "Invalid payable total" },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: "Invalid payable total" }, { status: 400 });
     }
 
     /* =========================
-       ✅ PAYMENT STATUS LOGIC
+       ✅ Create Razorpay Order
     ========================== */
-    let paymentStatus = "PENDING";
-
-    if (paymentMethod === "PREPAID") {
-      // ✅ You must only accept PREPAID when payment info exists
-      // (Ideally you should NOT create order here for PREPAID, use init+verify flow)
-      if (!data.razorpayOrderId || !data.razorpayPaymentId) {
-        return NextResponse.json(
-          { success: false, message: "Payment not verified" },
-          { status: 400 }
-        );
-      }
-
-      paymentStatus = "PAID";
+    if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      return NextResponse.json({ message: "Razorpay keys missing" }, { status: 500 });
     }
 
+    const razorpay = new Razorpay({
+      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    const receipt = `rcpt_${Date.now()}`;
+
+    const rpOrder = await razorpay.orders.create({
+      amount: Math.round(serverTotal * 100), // INR -> paise
+      currency: "INR",
+      receipt,
+    });
+
     /* =========================
-       ✅ CREATE ORDER
+       ✅ Create DB Order (PENDING)
     ========================== */
-    const order = await Order.create({
+    const dbOrder = await Order.create({
       customerId: customer?.id || null,
 
       customer: {
@@ -270,34 +227,40 @@ export async function POST(req) {
       total: serverTotal,
 
       paymentMethod,
-      paymentStatus,
+      paymentStatus: "PENDING",
 
-      razorpayOrderId: data.razorpayOrderId || null,
-      razorpayPaymentId: data.razorpayPaymentId || null,
+      razorpayOrderId: rpOrder.id,
+      razorpayPaymentId: null,
 
       status: "PLACED",
     });
 
-    /* =========================
-       ✅ UPDATE COUPON USAGE
-    ========================== */
-    if (couponDoc) {
-      await Coupon.updateOne({ _id: couponDoc._id }, { $inc: { usedCount: 1 } });
-    }
-
     return NextResponse.json({
       success: true,
-      orderId: order._id,
+      orderId: dbOrder._id,
+
       bill: {
         subtotal: serverSubtotal,
         discount: couponDiscount,
         total: serverTotal,
       },
+
+      razorpay: {
+        id: rpOrder.id,
+        amount: rpOrder.amount,
+        currency: rpOrder.currency,
+      },
+
+      customer: {
+        name: dbOrder.customer.name,
+        email: dbOrder.customer.email,
+        phone: dbOrder.customer.phone,
+      },
     });
   } catch (err) {
-    console.error("ORDER CREATE ERROR:", err);
+    console.error("PAYMENT INIT ERROR:", err);
     return NextResponse.json(
-      { success: false, message: "Failed to place order", error: err?.message },
+      { message: "Failed to init payment", error: err?.message },
       { status: 500 }
     );
   }
