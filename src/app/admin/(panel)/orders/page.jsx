@@ -89,7 +89,7 @@ export default function AdminOrdersPage() {
 
     if (status) qs.set("status", status);
     if (paymentMethod) qs.set("paymentMethod", paymentMethod);
-    if (paymentStatus) qs.set("paymentStatus", paymentStatus);
+    if (paymentStatus) qs.set("paymentStatus", paymentStatus.toUpperCase());
     if (search.trim()) qs.set("search", search.trim());
 
     const res = await fetch(`/api/admin/orders?${qs.toString()}`);
