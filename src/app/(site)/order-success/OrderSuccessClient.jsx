@@ -7,9 +7,53 @@ import Link from "next/link";
 export default function OrderSuccessClient() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
+  const awaitPayment = searchParams.get("awaitPayment") === "1";
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingPayment, setRefreshingPayment] = useState(false);
+
+  async function triggerOpenMoneyStatusCheck(currentOrder) {
+    if (!orderId || !currentOrder) return null;
+
+    const provider = String(currentOrder?.paymentGateway?.provider || "").toLowerCase();
+    if (provider !== "openmoney") return null;
+    if (String(currentOrder?.paymentStatus || "").toUpperCase() !== "PENDING") return null;
+
+    try {
+      const res = await fetch("/api/payment/status-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          refId: currentOrder?.paymentGateway?.providerOrderId || "",
+          serviceId: 1,
+        }),
+      });
+      const data = await res.json();
+      return res.ok ? data : null;
+    } catch (err) {
+      console.error("OPENMONEY STATUS CHECK ERROR:", err);
+      return null;
+    }
+  }
+
+  async function fetchOrderStatus() {
+    if (!orderId) return null;
+
+    const res = await fetch(`/api/orders/${orderId}`, {
+      cache: "no-store",
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return null;
+    }
+
+    setOrder(data);
+    return data;
+  }
 
   /* =========================
      LOAD ORDER
@@ -22,18 +66,11 @@ export default function OrderSuccessClient() {
 
     async function fetchOrder() {
       try {
-        const res = await fetch(`/api/orders/${orderId}`, {
-          cache: "no-store",
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
+        const data = await fetchOrderStatus();
+        if (!data) {
           setOrder(null);
           return;
         }
-
-        setOrder(data);
       } catch (err) {
         console.error(err);
         setOrder(null);
@@ -45,6 +82,35 @@ export default function OrderSuccessClient() {
     fetchOrder();
   }, [orderId]);
 
+  useEffect(() => {
+    if (!orderId || !order) return;
+    if (order.paymentMethod !== "PREPAID" || order.paymentStatus !== "PENDING") return;
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts += 1;
+      setRefreshingPayment(true);
+
+      try {
+        await triggerOpenMoneyStatusCheck(order);
+        const data = await fetchOrderStatus();
+        if (data?.paymentStatus && data.paymentStatus !== "PENDING") {
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setRefreshingPayment(false);
+      }
+
+      if (attempts >= 40) {
+        clearInterval(interval);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [orderId, order]);
+
   const shippingAddress = useMemo(() => {
     // ✅ support old + new model
     return order?.shippingAddress || order?.address || null;
@@ -53,6 +119,14 @@ export default function OrderSuccessClient() {
   const paymentMethodLabel = useMemo(() => {
     if (!order?.paymentMethod) return "-";
     return order.paymentMethod === "COD" ? "Cash on Delivery" : "Online Payment";
+  }, [order]);
+
+  const paymentProviderLabel = useMemo(() => {
+    return (
+      order?.paymentGateway?.providerLabel ||
+      order?.paymentGateway?.provider ||
+      (order?.razorpayOrderId ? "Razorpay" : "-")
+    );
   }, [order]);
 
   const paymentStatusUI = useMemo(() => {
@@ -77,6 +151,42 @@ export default function OrderSuccessClient() {
       className: "bg-yellow-100 text-yellow-800 border-yellow-200",
     };
   }, [order]);
+
+  const showProcessingBanner =
+    order?.paymentMethod === "PREPAID" && order?.paymentStatus === "PENDING";
+
+  const heroMeta = useMemo(() => {
+    const paymentStatus = String(order?.paymentStatus || "PENDING").toUpperCase();
+
+    if (awaitPayment && order?.paymentMethod === "PREPAID" && paymentStatus === "PENDING") {
+      return {
+        icon: (
+          <div className="h-7 w-7 rounded-full border-4 border-amber-200 border-t-amber-700 animate-spin" />
+        ),
+        iconClass: "bg-amber-100 text-amber-700",
+        title: "Payment Verification In Progress",
+        subtitle:
+          "We received your payment request and are waiting for gateway confirmation.",
+      };
+    }
+
+    if (paymentStatus === "FAILED") {
+      return {
+        icon: "!",
+        iconClass: "bg-red-100 text-red-700",
+        title: "Payment Failed",
+        subtitle:
+          "Your order is created, but payment failed. Please retry payment from My Orders.",
+      };
+    }
+
+    return {
+      icon: "OK",
+      iconClass: "bg-green-100 text-green-700",
+      title: "Order Confirmed",
+      subtitle: "Thanks for shopping with TikauFashion. Your order has been placed.",
+    };
+  }, [awaitPayment, order]);
 
   const orderDateText = useMemo(() => {
     if (!order?.createdAt) return "";
@@ -139,15 +249,15 @@ export default function OrderSuccessClient() {
       <div className="border rounded-2xl bg-white p-6 md:p-8 shadow-sm mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center text-green-700 text-2xl">
-              ✓
+            <div
+              className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${heroMeta.iconClass}`}
+            >
+              {heroMeta.icon}
             </div>
 
             <div>
-              <h1 className="text-2xl font-bold">Order Confirmed</h1>
-              <p className="text-sm text-gray-600 mt-1">
-                Thanks for shopping with TikauFashion. Your order has been placed.
-              </p>
+              <h1 className="text-2xl font-bold">{heroMeta.title}</h1>
+              <p className="text-sm text-gray-600 mt-1">{heroMeta.subtitle}</p>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="text-xs px-2 py-1 rounded-full border bg-gray-50 text-gray-700">
@@ -171,6 +281,25 @@ export default function OrderSuccessClient() {
 
           {/* QUICK ACTIONS */}
           <div className="flex gap-2">
+            {showProcessingBanner ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setRefreshingPayment(true);
+                  try {
+                    await triggerOpenMoneyStatusCheck(order);
+                    await fetchOrderStatus();
+                  } catch (err) {
+                    console.error(err);
+                  } finally {
+                    setRefreshingPayment(false);
+                  }
+                }}
+                className="px-5 py-2 rounded-xl border text-sm font-medium hover:bg-gray-50"
+              >
+                Refresh Status
+              </button>
+            ) : null}
             <Link
               href="/orders"
               className="px-5 py-2 rounded-xl border text-sm font-medium hover:bg-gray-50"
@@ -187,6 +316,28 @@ export default function OrderSuccessClient() {
         </div>
       </div>
 
+      {showProcessingBanner ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 h-10 w-10 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
+              <div>
+                <h2 className="text-lg font-semibold text-amber-900">
+                  Payment is being processed
+                </h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  We are confirming your payment with the gateway and updating your order.
+                  This usually takes a few seconds.
+                </p>
+              </div>
+            </div>
+            <div className="text-sm text-amber-900">
+              {refreshingPayment ? "Refreshing payment status..." : "Waiting for confirmation..."}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* MAIN GRID */}
       <div className="grid lg:grid-cols-5 gap-6">
         {/* LEFT (Order + Items) */}
@@ -196,6 +347,9 @@ export default function OrderSuccessClient() {
             <div className="space-y-2 text-sm">
               <Row label="Order ID" value={order._id} />
               <Row label="Payment Method" value={paymentMethodLabel} />
+              {order?.paymentMethod === "PREPAID" && (
+                <Row label="Gateway" value={paymentProviderLabel} />
+              )}
 
               {order?.coupon?.code && (
                 <Row
@@ -345,3 +499,4 @@ function Row({ label, value, valueClass = "" }) {
     </div>
   );
 }
+

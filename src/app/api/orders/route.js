@@ -4,10 +4,8 @@ import Order from "@/models/Order";
 import Coupon from "@/models/Coupon";
 import Product from "@/models/Product";
 import { getCustomerFromRequest } from "@/lib/customerAuth";
+import { buildGatewayOrderRecord } from "@/lib/mini-payment-gateway";
 
-/* =========================
-   ✅ COUPON LOGIC (same as cartSlice)
-========================= */
 function calculateDiscount(subtotal, coupon) {
   if (!coupon) return 0;
 
@@ -34,9 +32,6 @@ function calculateDiscount(subtotal, coupon) {
   return Math.round(discount);
 }
 
-/* =========================
-   ✅ VARIANT HELPERS
-========================= */
 function normalizeOptions(obj = {}) {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
@@ -93,12 +88,6 @@ export async function POST(req) {
       );
     }
 
-    /* =========================
-       ✅ SHIPPING ADDRESS
-       ✅ Support both keys:
-          - shippingAddress (new correct)
-          - address (old)
-    ========================== */
     const shipping = data?.shippingAddress || data?.address || {};
 
     if (
@@ -113,10 +102,6 @@ export async function POST(req) {
       );
     }
 
-    /* =========================
-       ✅ SERVER SIDE TOTAL CALC
-       ✅ (variant price aware)
-    ========================== */
     let items = [];
     let serverSubtotal = 0;
 
@@ -141,11 +126,8 @@ export async function POST(req) {
       }
 
       const selectedOptions = i.selectedOptions || {};
-
-      // ✅ If options were selected, price should come from variant
       const variant = findMatchingVariant(product, selectedOptions);
 
-      // ✅ If selectedOptions exists but variant not found => reject
       if (Object.keys(selectedOptions).length > 0 && !variant) {
         return NextResponse.json(
           {
@@ -157,14 +139,10 @@ export async function POST(req) {
         );
       }
 
-      // ✅ final price = variant.price if matched else product.price
       const finalPrice = Number(variant?.price ?? product.price);
-
-      // ✅ image from variant first
-      const finalImage =
-        variant?.image || i.image || product?.images?.[0] || "";
-
+      const finalImage = variant?.image || i.image || product?.images?.[0] || "";
       const lineTotal = finalPrice * qty;
+
       serverSubtotal += lineTotal;
 
       items.push({
@@ -172,22 +150,17 @@ export async function POST(req) {
         productId: i.productId,
         slug: product.slug,
         name: product.name,
-        price: finalPrice, // ✅ snapshot final price (variant aware)
+        price: finalPrice,
         qty,
         image: finalImage,
         selectedOptions,
       });
     }
 
-    /* =========================
-       ✅ COUPON VALIDATION (DB)
-    ========================== */
     let couponDoc = null;
     let couponDiscount = 0;
 
-    const couponCode = String(data?.coupon?.code || "")
-      .trim()
-      .toUpperCase();
+    const couponCode = String(data?.coupon?.code || "").trim().toUpperCase();
 
     if (couponCode) {
       couponDoc = await Coupon.findOne({ code: couponCode });
@@ -210,15 +183,15 @@ export async function POST(req) {
       );
     }
 
-    /* =========================
-       ✅ PAYMENT STATUS LOGIC
-    ========================== */
     let paymentStatus = "PENDING";
+    const providerOrderId = data.providerOrderId || data.razorpayOrderId || null;
+    const providerPaymentId =
+      data.providerPaymentId || data.razorpayPaymentId || null;
+    const providerSignature =
+      data.providerSignature || data.razorpaySignature || null;
 
     if (paymentMethod === "PREPAID") {
-      // ✅ You must only accept PREPAID when payment info exists
-      // (Ideally you should NOT create order here for PREPAID, use init+verify flow)
-      if (!data.razorpayOrderId || !data.razorpayPaymentId) {
+      if (!providerOrderId || !providerPaymentId) {
         return NextResponse.json(
           { success: false, message: "Payment not verified" },
           { status: 400 }
@@ -228,9 +201,6 @@ export async function POST(req) {
       paymentStatus = "PAID";
     }
 
-    /* =========================
-       ✅ CREATE ORDER
-    ========================== */
     const order = await Order.create({
       customerId: customer?.id || null,
 
@@ -254,7 +224,6 @@ export async function POST(req) {
       },
 
       items,
-
       subtotal: serverSubtotal,
       discount: couponDiscount,
 
@@ -268,19 +237,21 @@ export async function POST(req) {
         : undefined,
 
       total: serverTotal,
-
       paymentMethod,
       paymentStatus,
-
-      razorpayOrderId: data.razorpayOrderId || null,
-      razorpayPaymentId: data.razorpayPaymentId || null,
-
+      paymentGateway: buildGatewayOrderRecord({
+        providerOrderId,
+        providerPaymentId,
+        signature: providerSignature,
+        status: paymentStatus,
+        verifiedAt: paymentStatus === "PAID" ? new Date() : null,
+      }),
+      razorpayOrderId: data.razorpayOrderId || providerOrderId,
+      razorpayPaymentId: data.razorpayPaymentId || providerPaymentId,
+      razorpaySignature: data.razorpaySignature || providerSignature,
       status: "PLACED",
     });
 
-    /* =========================
-       ✅ UPDATE COUPON USAGE
-    ========================== */
     if (couponDoc) {
       await Coupon.updateOne({ _id: couponDoc._id }, { $inc: { usedCount: 1 } });
     }

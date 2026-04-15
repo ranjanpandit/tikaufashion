@@ -74,6 +74,22 @@ const OrderSchema = new mongoose.Schema(
       default: "PENDING",
     },
 
+    paymentGateway: {
+      gateway: String,
+      provider: String,
+      providerLabel: String,
+      platformOrderId: String,
+      platformGatewayCode: String,
+      providerOrderId: String,
+      providerPaymentId: String,
+      signature: String,
+      receipt: String,
+      status: String,
+      verifiedAt: Date,
+      syncStatus: String,
+      syncMessage: String,
+    },
+
     razorpayOrderId: String,
     razorpayPaymentId: String,
     razorpaySignature: String,

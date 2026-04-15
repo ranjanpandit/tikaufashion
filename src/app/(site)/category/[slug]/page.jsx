@@ -3,6 +3,26 @@ import ProductGrid from "@/components/category/ProductGrid";
 import Filters from "@/components/category/Filters";
 import SortSelect from "@/components/category/SortSelect";
 
+function getApiBaseUrl() {
+  const envBase =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+  return envBase.replace(/\/$/, "");
+}
+
+async function parseJsonSafely(res) {
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) return null;
+
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 async function getCategoryProducts(slug, rawSearchParams) {
   const params = new URLSearchParams();
   params.set("category", slug);
@@ -18,21 +38,26 @@ async function getCategoryProducts(slug, rawSearchParams) {
     }
   }
 
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL}/api/products?${params.toString()}`,
-    { cache: "no-store" }
-  );
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/api/products?${params.toString()}`, {
+    cache: "no-store",
+  });
 
   if (!res.ok) return null;
-  return res.json();
+
+  return parseJsonSafely(res);
 }
 
 async function getCategoryFilters(slug) {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL}/api/filters?category=${slug}`,
-    { cache: "no-store" }
-  );
-  return res.json();
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/api/filters?category=${slug}`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) return [];
+
+  const data = await parseJsonSafely(res);
+  return Array.isArray(data) ? data : [];
 }
 
 export default async function CategoryPage({ params, searchParams }) {
@@ -43,7 +68,7 @@ export default async function CategoryPage({ params, searchParams }) {
 
   if (!data) return notFound();
 
-  const { category, products, pagination } = data;
+  const { category, products = [], pagination } = data;
 
   return (
     <div

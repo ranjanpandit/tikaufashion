@@ -4,6 +4,10 @@ import { useSelector, useDispatch } from "react-redux";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { applyCoupon, removeCoupon, clearCart } from "@/store/cartSlice";
+import {
+  loadPaymentGatewayScript,
+  openPaymentGatewayCheckout,
+} from "@/lib/mini-payment-gateway/client";
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -19,6 +23,12 @@ export default function CheckoutPage() {
   const [mounted, setMounted] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentProcessingText, setPaymentProcessingText] = useState(
+    "Please wait while we confirm your payment."
+  );
+  const [openMoneySession, setOpenMoneySession] = useState(null);
+  const [upiCopied, setUpiCopied] = useState(false);
 
   // Customer profile
   const [profileLoading, setProfileLoading] = useState(true);
@@ -348,18 +358,23 @@ export default function CheckoutPage() {
     dispatch(removeCoupon());
   }
 
-  /* =========================
-     RAZORPAY LOADER
-  ========================== */
-  function loadRazorpay() {
-    return new Promise((resolve) => {
-      if (window.Razorpay) return resolve(true);
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
+  function getOpenMoneyQrImageUrl(qrString) {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=${encodeURIComponent(
+      qrString || ""
+    )}`;
+  }
+
+  async function copyUpiLink(text) {
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setUpiCopied(true);
+      setTimeout(() => setUpiCopied(false), 1800);
+    } catch (err) {
+      console.log("COPY UPI LINK ERROR", err);
+      alert("Could not copy link. Please copy manually.");
+    }
   }
 
   /* =========================
@@ -428,9 +443,6 @@ export default function CheckoutPage() {
       }
 
       // ✅ PREPAID (Secure)
-      const loaded = await loadRazorpay();
-      if (!loaded) throw new Error("Razorpay failed to load");
-
       const initRes = await fetch("/api/payment/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -446,18 +458,70 @@ export default function CheckoutPage() {
       const initData = await initRes.json();
 
       if (!initRes.ok) {
-        throw new Error(initData?.message || "Failed to start online payment");
+        throw new Error(
+          initData?.error ||
+            initData?.message ||
+            "Failed to start online payment"
+        );
       }
 
       const dbOrderId = initData.orderId;
+      const gateway = initData.paymentGateway || {};
+      const provider = String(gateway.provider || "").toLowerCase();
+      const gatewayOrderId = gateway.orderId || initData?.razorpay?.id || "";
+
+      async function syncFailedPayment(input = {}) {
+        try {
+          await fetch("/api/payment/fail", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              orderId: dbOrderId,
+              gatewayOrderId,
+              gatewayPaymentId: input.gatewayPaymentId || "",
+              status: input.status || "FAILED",
+              reason: input.reason || "Checkout failed before payment capture.",
+            }),
+          });
+        } catch (syncError) {
+          console.log("FAILED PAYMENT SYNC ERROR", syncError);
+        }
+      }
+
+      if (provider === "openmoney") {
+        const paymentUrl =
+          initData?.openmoney?.paymentUrl || gateway.paymentUrl || "";
+        const qrString = initData?.openmoney?.qrString || gateway.qrString || paymentUrl;
+
+        if (!qrString) {
+          throw new Error("OpenMoney QR string missing from init response");
+        }
+
+        setOpenMoneySession({
+          orderId: dbOrderId,
+          qrString,
+          paymentUrl,
+          amount: initData?.openmoney?.amount || gateway.amount || total,
+          refId: initData?.openmoney?.refId || gateway.refId || gatewayOrderId,
+          txnId: initData?.openmoney?.txnId || gateway.txnId || "",
+        });
+        return;
+      }
+
+      const loaded = await loadPaymentGatewayScript(gateway);
+      if (!loaded) throw new Error("Payment gateway failed to load");
+
       const rpOrder = initData.razorpay;
+      if (!rpOrder?.id) {
+        throw new Error("Gateway order creation failed");
+      }
 
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        key: gateway.checkoutKey,
         amount: rpOrder.amount,
         currency: rpOrder.currency || "INR",
-        name: "TikauFashion",
-        description: "Secure Online Payment",
+        name: gateway.gatewayName || "Tikau Fashion",
+        description: `Secure checkout via ${gateway.providerLabel || "online payments"}`,
         order_id: rpOrder.id,
 
         prefill: {
@@ -467,12 +531,20 @@ export default function CheckoutPage() {
         },
 
         handler: async (response) => {
+          setPaymentProcessing(true);
+          setPaymentProcessingText(
+            "Payment received. We are verifying it securely before confirming your order."
+          );
+
           try {
             const verifyRes = await fetch("/api/payment/verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 orderId: dbOrderId,
+                provider_order_id: response.razorpay_order_id,
+                provider_payment_id: response.razorpay_payment_id,
+                provider_signature: response.razorpay_signature,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
@@ -482,6 +554,7 @@ export default function CheckoutPage() {
             const verifyData = await verifyRes.json();
 
             if (!verifyRes.ok) {
+              setPaymentProcessing(false);
               alert(verifyData?.message || "Payment verification failed");
               return;
             }
@@ -490,18 +563,47 @@ export default function CheckoutPage() {
             router.push(`/order-success?orderId=${dbOrderId}`);
           } catch (err) {
             console.log(err);
+            setPaymentProcessing(false);
             alert("Payment succeeded but verification failed. Contact support.");
           }
         },
 
         modal: {
-          ondismiss: () => alert("Payment cancelled"),
+          ondismiss: async () => {
+            setPaymentProcessing(false);
+            await syncFailedPayment({
+              status: "CANCELLED",
+              reason: "Customer dismissed the checkout modal.",
+            });
+            alert("Payment cancelled");
+          },
+        },
+
+        onPaymentFailed: async (failureResponse) => {
+          setPaymentProcessing(false);
+          await syncFailedPayment({
+            status: "FAILED",
+            gatewayPaymentId:
+              failureResponse?.error?.metadata?.payment_id ||
+              failureResponse?.error?.metadata?.razorpay_payment_id ||
+              "",
+            reason:
+              failureResponse?.error?.description ||
+              failureResponse?.error?.reason ||
+              "Payment failed in gateway checkout.",
+          });
+          alert(
+            failureResponse?.error?.description || "Payment failed. Please try again."
+          );
         },
 
         theme: { color: "#000000" },
       };
 
-      new window.Razorpay(options).open();
+      openPaymentGatewayCheckout({
+        providerConfig: gateway,
+        options,
+      });
     } catch (err) {
       console.log(err);
       alert(err?.message || "Payment failed");
@@ -518,6 +620,21 @@ export default function CheckoutPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-6">
+      {paymentProcessing ? (
+        <div className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl text-center">
+            <div className="mx-auto mb-5 h-14 w-14 rounded-full border-4 border-gray-200 border-t-black animate-spin" />
+            <h2 className="text-xl font-bold text-gray-900">Processing payment</h2>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              {paymentProcessingText}
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Do not refresh or close this page.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {/* HEADER */}
       <div className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-2">
         <div>
@@ -964,7 +1081,7 @@ export default function CheckoutPage() {
               <PayCard
                 checked={paymentMethod === "PREPAID"}
                 title="Pay Online"
-                desc="UPI / Cards / Netbanking via Razorpay"
+                desc="UPI / Cards / Netbanking via our payment gateway"
                 onChange={() => setPaymentMethod("PREPAID")}
                 badge="Secure"
               />
@@ -1129,6 +1246,46 @@ export default function CheckoutPage() {
             setShowConfirm(false);
             placeOrder();
           }}
+        />
+      )}
+
+      {openMoneySession && (
+        <OpenMoneyQrModal
+          amount={openMoneySession.amount}
+          refId={openMoneySession.refId}
+          txnId={openMoneySession.txnId}
+          qrString={openMoneySession.qrString}
+          qrImageUrl={getOpenMoneyQrImageUrl(openMoneySession.qrString)}
+          copied={upiCopied}
+          onCopy={() => copyUpiLink(openMoneySession.qrString)}
+          onOpenApp={() =>
+            openPaymentGatewayCheckout({
+              providerConfig: { provider: "openmoney" },
+              paymentUrl: openMoneySession.paymentUrl || openMoneySession.qrString,
+            })
+          }
+          onClose={() => setOpenMoneySession(null)}
+          onDone={() =>
+            (async () => {
+              try {
+                await fetch("/api/payment/status-check", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    orderId: openMoneySession.orderId,
+                    refId: openMoneySession.refId || "",
+                    serviceId: 1,
+                  }),
+                });
+              } catch (err) {
+                console.log("OPENMONEY IMMEDIATE STATUS CHECK ERROR", err);
+              } finally {
+                router.push(
+                  `/order-success?orderId=${openMoneySession.orderId}&awaitPayment=1`
+                );
+              }
+            })()
+          }
         />
       )}
     </div>
@@ -1395,6 +1552,102 @@ function ConfirmModal({
             Confirm & Place Order
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function OpenMoneyQrModal({
+  amount,
+  refId,
+  txnId,
+  qrString,
+  qrImageUrl,
+  copied,
+  onCopy,
+  onOpenApp,
+  onClose,
+  onDone,
+}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[100001] bg-black/60 backdrop-blur-sm flex items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Scan & Pay</h3>
+            <p className="text-xs text-gray-600 mt-1">
+              Open any UPI app and scan this QR to complete payment.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 w-9 rounded-xl border text-gray-500 hover:bg-gray-50"
+            aria-label="Close QR"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-2xl border bg-white p-3">
+          <img src={qrImageUrl} alt="OpenMoney UPI QR" className="mx-auto h-64 w-64" />
+        </div>
+
+        <div className="mt-4 space-y-1 text-sm">
+          <p>
+            Amount: <b>₹{amount}</b>
+          </p>
+          {refId ? (
+            <p className="text-gray-600">
+              Ref ID: <span className="font-mono text-xs">{refId}</span>
+            </p>
+          ) : null}
+          {txnId ? (
+            <p className="text-gray-600">
+              Txn ID: <span className="font-mono text-xs">{txnId}</span>
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+          >
+            {copied ? "Copied" : "Copy UPI Link"}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenApp}
+            className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+          >
+            Open UPI App
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <p className="text-xs text-gray-500">
+            Secure payment link is hidden. Use Scan, Copy, or Open UPI App.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onDone}
+          className="mt-4 w-full rounded-xl bg-black px-4 py-3 text-sm font-medium text-white hover:opacity-90"
+        >
+          I Have Paid
+        </button>
       </div>
     </div>
   );

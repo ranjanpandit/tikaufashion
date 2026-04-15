@@ -379,10 +379,18 @@ export async function GET(req, { params }) {
       color: black,
     });
 
-    // ===== Payment Reference (Razorpay) =====
+    // ===== Payment Reference =====
     const payBoxX = M;
     const payBoxW = width - M * 2 - totalsW - 20;
     const payBoxH = totalsH;
+    const providerLabel =
+      order.paymentGateway?.providerLabel ||
+      order.paymentGateway?.provider ||
+      (order.razorpayOrderId ? "Razorpay" : "Gateway");
+    const providerOrderId =
+      order.paymentGateway?.providerOrderId || order.razorpayOrderId || "";
+    const providerPaymentId =
+      order.paymentGateway?.providerPaymentId || order.razorpayPaymentId || "";
 
     drawBox(page, payBoxX, y - payBoxH, payBoxW, payBoxH, rgb(1, 1, 1), border);
 
@@ -408,8 +416,8 @@ export async function GET(req, { params }) {
       { size: 10, font, color: gray }
     );
 
-    if (order.razorpayOrderId) {
-      drawText(page, `Razorpay Order ID: ${order.razorpayOrderId}`, payBoxX + 14, y - 74, {
+    if (providerOrderId) {
+      drawText(page, `${providerLabel} Order ID: ${providerOrderId}`, payBoxX + 14, y - 74, {
         size: 10,
         font,
         color: gray,
@@ -417,8 +425,8 @@ export async function GET(req, { params }) {
       });
     }
 
-    if (order.razorpayPaymentId) {
-      drawText(page, `Razorpay Payment ID: ${order.razorpayPaymentId}`, payBoxX + 14, y - 90, {
+    if (providerPaymentId) {
+      drawText(page, `${providerLabel} Payment ID: ${providerPaymentId}`, payBoxX + 14, y - 90, {
         size: 10,
         font,
         color: gray,

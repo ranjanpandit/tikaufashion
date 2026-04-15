@@ -144,6 +144,12 @@ export default async function OrderDetailsPage({ params }) {
   const subtotal = order?.subtotal ?? 0;
   const discount = order?.discount ?? 0;
   const total = order?.total ?? 0;
+  const providerLabel =
+    order?.paymentGateway?.providerLabel ||
+    order?.paymentGateway?.provider ||
+    (order?.razorpayOrderId ? "Razorpay" : "");
+  const providerOrderId =
+    order?.paymentGateway?.providerOrderId || order?.razorpayOrderId || "";
 
   // ✅ invoice endpoint (will return PDF)
   const invoiceUrl = `/api/orders/${order._id}/invoice`;
@@ -372,10 +378,10 @@ export default async function OrderDetailsPage({ params }) {
               phone/email.
             </p>
 
-            {order?.razorpayOrderId && (
+            {providerOrderId && (
               <p className="text-xs text-gray-500 mt-2 break-all">
-                Razorpay Order ID:{" "}
-                <span className="font-medium">{order.razorpayOrderId}</span>
+                {providerLabel || "Payment"} Order ID:{" "}
+                <span className="font-medium">{providerOrderId}</span>
               </p>
             )}
           </div>

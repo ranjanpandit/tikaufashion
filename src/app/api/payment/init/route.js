@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
-import Razorpay from "razorpay";
 import { connectMongo } from "@/lib/mongodb";
 import Order from "@/models/Order";
 import Coupon from "@/models/Coupon";
 import Product from "@/models/Product";
 import { getCustomerFromRequest } from "@/lib/customerAuth";
+import {
+  buildGatewayOrderRecord,
+  createPlatformOrder,
+  createGatewayOrder,
+  getPaymentGatewayMeta,
+  sendPayoutWebhook,
+} from "@/lib/mini-payment-gateway";
+import { hasMiniPaymentPlatformConfig } from "@/lib/mini-payment-gateway/config";
 
-/* =========================
-   ✅ EXACT CARTSLICE LOGIC
-========================= */
+const PAYMENT_DEBUG_LOGS = String(process.env.PAYMENT_DEBUG_LOGS || "").toLowerCase() === "true";
+
 function calculateDiscount(subtotal, coupon) {
   if (!coupon) return 0;
 
@@ -32,9 +38,6 @@ function calculateDiscount(subtotal, coupon) {
   return Math.round(discount);
 }
 
-/* =========================
-   ✅ VARIANT MATCH (SECURE)
-========================= */
 function normalizeOptions(obj = {}) {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
@@ -73,22 +76,17 @@ export async function POST(req) {
 
     const data = await req.json();
     const customer = await getCustomerFromRequest();
-
     const paymentMethod = "PREPAID";
 
     if (!data?.items?.length) {
       return NextResponse.json({ message: "Cart items missing" }, { status: 400 });
     }
 
-    // ✅ Validate shipping address
     const shipping = data?.shippingAddress || data?.address || {};
     if (!shipping?.line1 || !shipping?.city || !shipping?.state || !shipping?.pincode) {
       return NextResponse.json({ message: "Delivery address missing" }, { status: 400 });
     }
 
-    /* =========================
-       ✅ Server-side pricing (variant based)
-    ========================== */
     let items = [];
     let serverSubtotal = 0;
 
@@ -107,8 +105,6 @@ export async function POST(req) {
       }
 
       const selectedOptions = i.selectedOptions || {};
-
-      // ✅ Pick variant price if options exist
       const variant = findMatchingVariant(product, selectedOptions);
 
       if (Object.keys(selectedOptions).length > 0 && !variant) {
@@ -122,8 +118,7 @@ export async function POST(req) {
       }
 
       const finalUnitPrice = Number(variant?.price ?? product.price);
-      const finalImage =
-        variant?.image || i.image || product?.images?.[0] || "";
+      const finalImage = variant?.image || i.image || product?.images?.[0] || "";
 
       const lineTotal = finalUnitPrice * qty;
       serverSubtotal += lineTotal;
@@ -133,16 +128,13 @@ export async function POST(req) {
         productId: i.productId,
         slug: product.slug,
         name: product.name,
-        price: finalUnitPrice, // ✅ snapshot variant price
+        price: finalUnitPrice,
         qty,
         image: finalImage,
         selectedOptions,
       });
     }
 
-    /* =========================
-       ✅ Coupon validation (DB)
-    ========================== */
     let couponDoc = null;
     let couponDiscount = 0;
 
@@ -160,42 +152,72 @@ export async function POST(req) {
     }
 
     const serverTotal = Math.max(serverSubtotal - couponDiscount, 0);
-    // console.log({serverSubtotal,couponDiscount,serverTotal})
     if (serverTotal <= 0) {
       return NextResponse.json({ message: "Invalid payable total" }, { status: 400 });
     }
 
-    /* =========================
-       ✅ Create Razorpay Order
-    ========================== */
-    if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-      return NextResponse.json({ message: "Razorpay keys missing" }, { status: 500 });
+    const receipt = `rcpt_${Date.now()}`;
+    const clientOrderId = `TIKAU-${Date.now()}`;
+    const customerPayload = {
+      name: data.customer?.name || shipping.fullName || "",
+      email: data.customer?.email || "",
+      phone: data.customer?.phone || shipping.phone || "",
+    };
+
+    if (PAYMENT_DEBUG_LOGS) {
+      console.log("[PAYMENT DEBUG] /api/payment/init payload", {
+        itemsCount: data.items?.length || 0,
+        subtotalClient: data.subtotal,
+        discountClient: data.discount,
+        coupon: data?.coupon?.code || null,
+        customer: customerPayload,
+        shippingAddress: {
+          city: shipping.city,
+          state: shipping.state,
+          pincode: shipping.pincode,
+          type: shipping.type || "home",
+        },
+      });
     }
 
-    const razorpay = new Razorpay({
-      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
+    const gatewayMeta = getPaymentGatewayMeta();
+    let platformOrder = null;
 
-    const receipt = `rcpt_${Date.now()}`;
-
-    const rpOrder = await razorpay.orders.create({
-      amount: Math.round(serverTotal * 100), // INR -> paise
+    if (hasMiniPaymentPlatformConfig() && gatewayMeta.provider === "razorpay") {
+      try {
+        platformOrder = await createPlatformOrder({
+          amount: serverTotal,
+          currency: "INR",
+          clientOrderId,
+          customer: customerPayload,
+          gatewayCode: String(gatewayMeta.provider || "").toUpperCase(),
+          description: `Tikau Fashion checkout for ${items.length} item(s)`,
+          metadata: {
+            website: "tikaufashion",
+            receipt,
+            customerEmail: customerPayload.email || "",
+          },
+        });
+      } catch (platformError) {
+        console.error("PLATFORM ORDER CREATE ERROR:", platformError);
+      }
+    }
+    const providerOrder = await createGatewayOrder({
+      amount: Math.round(serverTotal * 100),
       currency: "INR",
       receipt,
+      customer: customerPayload,
     });
+    const providerOrderId = providerOrder?.id || providerOrder?.orderId || providerOrder?.refId;
 
-    /* =========================
-       ✅ Create DB Order (PENDING)
-    ========================== */
+    if (!providerOrderId) {
+      throw new Error("Gateway order id is missing from provider response");
+    }
+
     const dbOrder = await Order.create({
       customerId: customer?.id || null,
 
-      customer: {
-        name: data.customer?.name || shipping.fullName || "",
-        email: data.customer?.email || "",
-        phone: data.customer?.phone || shipping.phone || "",
-      },
+      customer: customerPayload,
 
       shippingAddress: {
         fullName: shipping.fullName || data.customer?.name || "",
@@ -211,7 +233,6 @@ export async function POST(req) {
       },
 
       items,
-
       subtotal: serverSubtotal,
       discount: couponDiscount,
 
@@ -225,32 +246,79 @@ export async function POST(req) {
         : undefined,
 
       total: serverTotal,
-
       paymentMethod,
       paymentStatus: "PENDING",
-
-      razorpayOrderId: rpOrder.id,
+      paymentGateway: buildGatewayOrderRecord({
+        platformOrderId: platformOrder?.order?.platformOrderId || null,
+        platformGatewayCode:
+          platformOrder?.gateway?.code || String(gatewayMeta.provider || "").toUpperCase(),
+        providerOrderId,
+        receipt,
+        status: "PENDING",
+        syncStatus: "PENDING",
+        syncMessage: platformOrder
+          ? "Awaiting payment confirmation sync with platform."
+          : "Platform sync skipped for this provider.",
+      }),
+      razorpayOrderId: providerOrderId,
       razorpayPaymentId: null,
-
+      receipt,
       status: "PLACED",
     });
+
+    try {
+      await sendPayoutWebhook({
+        statusId: 2,
+        amount: Number(serverTotal || 0),
+        utr: providerOrderId || receipt,
+        clientId: String(customer?.id || customerPayload.phone || ""),
+        message: "Payment pending",
+      });
+    } catch (payoutError) {
+      console.error("PAYOUT WEBHOOK PENDING SYNC ERROR:", payoutError);
+    }
 
     return NextResponse.json({
       success: true,
       orderId: dbOrder._id,
-
       bill: {
         subtotal: serverSubtotal,
         discount: couponDiscount,
         total: serverTotal,
       },
-
-      razorpay: {
-        id: rpOrder.id,
-        amount: rpOrder.amount,
-        currency: rpOrder.currency,
+      razorpay:
+        gatewayMeta.provider === "razorpay"
+          ? {
+              id: providerOrderId,
+              amount: providerOrder.amount,
+              currency: providerOrder.currency,
+            }
+          : null,
+      openmoney:
+        gatewayMeta.provider === "openmoney"
+          ? {
+              refId: providerOrder.refId || providerOrderId,
+              amount: providerOrder.amount,
+              currency: providerOrder.currency || "INR",
+              paymentUrl: providerOrder.paymentUrl || "",
+              qrString: providerOrder.qrString || "",
+              txnId: providerOrder.txnId || null,
+              txnDate: providerOrder.txnDate || null,
+              apiStatus: providerOrder.apiStatus || null,
+            }
+          : null,
+      paymentGateway: {
+        ...gatewayMeta,
+        platformOrderId: platformOrder?.order?.platformOrderId || null,
+        orderId: providerOrderId,
+        amount: providerOrder.amount,
+        currency: providerOrder.currency || "INR",
+        paymentUrl: providerOrder.paymentUrl || "",
+        qrString: providerOrder.qrString || "",
+        txnId: providerOrder.txnId || null,
+        txnDate: providerOrder.txnDate || null,
+        refId: providerOrder.refId || providerOrderId,
       },
-
       customer: {
         name: dbOrder.customer.name,
         email: dbOrder.customer.email,
@@ -259,8 +327,11 @@ export async function POST(req) {
     });
   } catch (err) {
     console.error("PAYMENT INIT ERROR:", err);
+    const exactMessage =
+      err?.message || err?.error || "Failed to init payment";
+
     return NextResponse.json(
-      { message: "Failed to init payment", error: err?.message },
+      { message: exactMessage, error: exactMessage },
       { status: 500 }
     );
   }

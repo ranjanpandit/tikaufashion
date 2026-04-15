@@ -15,7 +15,7 @@ export default function FaqPage() {
     {
       question: "Do you support Cash on Delivery?",
       answer:
-        "Yes, COD is available for most pin codes. You can also pay online using Razorpay.",
+        "Yes, COD is available for most pin codes. You can also pay online using our secure payment gateway.",
     },
     {
       question: "How can I track my order?",

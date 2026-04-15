@@ -73,6 +73,14 @@ export default async function AdminOrderDetailsPage({ params }) {
   const status = String(order.status || "").toUpperCase();
   const paymentStatus = String(order.paymentStatus || "").toUpperCase();
   const paymentMethod = String(order.paymentMethod || "").toUpperCase();
+  const gatewayProviderLabel =
+    order.paymentGateway?.providerLabel ||
+    order.paymentGateway?.provider ||
+    (order.razorpayOrderId || order.razorpayPaymentId ? "Razorpay" : "-");
+  const providerOrderId =
+    order.paymentGateway?.providerOrderId || order.razorpayOrderId || "-";
+  const providerPaymentId =
+    order.paymentGateway?.providerPaymentId || order.razorpayPaymentId || "-";
 
   const statusTone =
     status === "PLACED"
@@ -283,16 +291,9 @@ export default async function AdminOrderDetailsPage({ params }) {
                 <Row label="Status" value={paymentStatus || "-"} />
                 {paymentMethod == "PREPAID" && (
                   <>
-                    <Row
-                      label="Razorpay Order"
-                      value={order.razorpayOrderId || "-"}
-                      mono
-                    />
-                    <Row
-                      label="Razorpay Payment"
-                      value={order.razorpayPaymentId || "-"}
-                      mono
-                    />{" "}
+                    <Row label="Gateway" value={gatewayProviderLabel} />
+                    <Row label="Provider Order" value={providerOrderId} mono />
+                    <Row label="Provider Payment" value={providerPaymentId} mono />
                   </>
                 )}
               </div>
