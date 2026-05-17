@@ -12,6 +12,7 @@ export default function OrderSuccessClient() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshingPayment, setRefreshingPayment] = useState(false);
+  const [autoCheckStopped, setAutoCheckStopped] = useState(false);
 
   async function triggerOpenMoneyStatusCheck(currentOrder) {
     if (!orderId || !currentOrder) return null;
@@ -21,6 +22,7 @@ export default function OrderSuccessClient() {
     if (String(currentOrder?.paymentStatus || "").toUpperCase() !== "PENDING") return null;
 
     try {
+      console.log('currentOrder==',currentOrder)
       const res = await fetch("/api/payment/status-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,19 +84,48 @@ export default function OrderSuccessClient() {
     fetchOrder();
   }, [orderId]);
 
+  const paymentMethod = order?.paymentMethod || "";
+  const paymentStatus = String(order?.paymentStatus || "").toUpperCase();
+  const paymentProvider = String(order?.paymentGateway?.provider || "").toLowerCase();
+  const paymentRefId = order?.paymentGateway?.providerOrderId || "";
+
+  async function handleManualRefresh() {
+    setAutoCheckStopped(false);
+    setRefreshingPayment(true);
+    try {
+      await triggerOpenMoneyStatusCheck(order);
+      await fetchOrderStatus();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRefreshingPayment(false);
+    }
+  }
+
   useEffect(() => {
-    if (!orderId || !order) return;
-    if (order.paymentMethod !== "PREPAID" || order.paymentStatus !== "PENDING") return;
+    if (!orderId) return;
+    if (paymentMethod !== "PREPAID" || paymentStatus !== "PENDING") return;
+    if (autoCheckStopped) return;
 
     let attempts = 0;
+    const MAX_AUTO_CHECK_ATTEMPTS = paymentProvider === "openmoney" ? 8 : 40;
     const interval = setInterval(async () => {
       attempts += 1;
       setRefreshingPayment(true);
 
       try {
-        await triggerOpenMoneyStatusCheck(order);
+        if (paymentProvider === "openmoney") {
+          await triggerOpenMoneyStatusCheck({
+            paymentGateway: {
+              provider: paymentProvider,
+              providerOrderId: paymentRefId,
+            },
+            paymentStatus: "PENDING",
+          });
+        }
         const data = await fetchOrderStatus();
         if (data?.paymentStatus && data.paymentStatus !== "PENDING") {
+          setAutoCheckStopped(false);
           clearInterval(interval);
         }
       } catch (err) {
@@ -103,13 +134,21 @@ export default function OrderSuccessClient() {
         setRefreshingPayment(false);
       }
 
-      if (attempts >= 40) {
+      if (attempts >= MAX_AUTO_CHECK_ATTEMPTS) {
+        setAutoCheckStopped(true);
         clearInterval(interval);
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [orderId, order]);
+  }, [
+    orderId,
+    paymentMethod,
+    paymentStatus,
+    paymentProvider,
+    paymentRefId,
+    autoCheckStopped,
+  ]);
 
   const shippingAddress = useMemo(() => {
     // ✅ support old + new model
@@ -281,25 +320,6 @@ export default function OrderSuccessClient() {
 
           {/* QUICK ACTIONS */}
           <div className="flex gap-2">
-            {showProcessingBanner ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  setRefreshingPayment(true);
-                  try {
-                    await triggerOpenMoneyStatusCheck(order);
-                    await fetchOrderStatus();
-                  } catch (err) {
-                    console.error(err);
-                  } finally {
-                    setRefreshingPayment(false);
-                  }
-                }}
-                className="px-5 py-2 rounded-xl border text-sm font-medium hover:bg-gray-50"
-              >
-                Refresh Status
-              </button>
-            ) : null}
             <Link
               href="/orders"
               className="px-5 py-2 rounded-xl border text-sm font-medium hover:bg-gray-50"
@@ -320,19 +340,40 @@ export default function OrderSuccessClient() {
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-4">
-              <div className="mt-1 h-10 w-10 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
+              {autoCheckStopped ? (
+                <div className="mt-1 h-10 w-10 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  !
+                </div>
+              ) : (
+                <div className="mt-1 h-10 w-10 rounded-full border-4 border-amber-200 border-t-amber-600 animate-spin" />
+              )}
               <div>
                 <h2 className="text-lg font-semibold text-amber-900">
-                  Payment is being processed
+                  {autoCheckStopped
+                    ? "Payment Not Verified Yet"
+                    : "Payment is being processed"}
                 </h2>
                 <p className="mt-1 text-sm text-amber-800">
-                  We are confirming your payment with the gateway and updating your order.
-                  This usually takes a few seconds.
+                  {autoCheckStopped
+                    ? "We could not verify your payment right now."
+                    : "We are confirming your payment with the gateway and updating your order. This usually takes a few seconds."}
                 </p>
+                {autoCheckStopped ? (
+                  <p className="mt-1 text-sm text-amber-800">
+                    If money is deducted, please keep your UTR/reference and contact support if status does not update.
+                  </p>
+                ) : null}
               </div>
             </div>
-            <div className="text-sm text-amber-900">
-              {refreshingPayment ? "Refreshing payment status..." : "Waiting for confirmation..."}
+            <div>
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={refreshingPayment}
+                className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+              >
+                {refreshingPayment ? "Refreshing..." : "Refresh Status"}
+              </button>
             </div>
           </div>
         </div>

@@ -142,6 +142,7 @@ function normalizeOpenMoneyStatusValue(value) {
     [
       "2",
       "pending",
+      "process",
       "processing",
       "inprocess",
       "initiated",
@@ -204,6 +205,8 @@ function extractOpenMoneyUtr(payload = {}) {
   return (
     data?.utr ||
     payload?.utr ||
+    data?.utR_RRN ||
+    payload?.utR_RRN ||
     data?.txn_id ||
     payload?.txn_id ||
     data?.transaction_id ||
@@ -214,9 +217,18 @@ function extractOpenMoneyUtr(payload = {}) {
   );
 }
 
+function resolveOpenMoneyStatusCheckUrl(baseUrl = "") {
+  const explicitUrl = String(process.env.OPENMONEY_STATUS_CHECK_URL || "").trim();
+  if (explicitUrl) return explicitUrl;
+
+  const normalizedBaseUrl = String(baseUrl || "").replace(/\/+$/, "");
+  if (!normalizedBaseUrl) return "/api/v1/openmoney/payout/status-check";
+  return `${normalizedBaseUrl}/payout/status-check`;
+}
+
 async function generateOpenMoneyToken() {
   const config = getOpenMoneyConfig();
-  const url = `${config.baseUrl}/api/Auth/generate-token`;
+  const url = `${config.baseUrl}/auth/generate-token`;
   const requestBody = {
     mid: config.mid,
     email: config.email,
@@ -296,7 +308,7 @@ export async function createGatewayOrder({
       throw new Error("OpenMoney requires a customer mobile number");
     }
 
-    const url = `${config.baseUrl}/api/Payin/create-order`;
+    const url = `${config.baseUrl}/payin/create-order`;
     const requestBody = {
       RefID: receipt || `OM-${Date.now()}`,
       Amount: formatOpenMoneyAmount(amount),
@@ -372,7 +384,7 @@ export async function createGatewayOrder({
   throw new Error(`Provider not implemented: ${provider.provider}`);
 }
 
-export async function checkGatewayPaymentStatus({ refId, serviceId = 1 }) {
+export async function checkGatewayPaymentStatus({ refId, receiptId, serviceId = 1 }) {
   const provider = getActivePaymentProvider();
 
   if (provider.provider !== "openmoney") {
@@ -380,24 +392,24 @@ export async function checkGatewayPaymentStatus({ refId, serviceId = 1 }) {
   }
 
   const config = getOpenMoneyConfig();
+  const token = await generateOpenMoneyToken();
+  const resolvedReceiptId = String(receiptId || refId || "").trim();
   const requestBody = {
-    RefId: String(refId || "").trim(),
+    receiptId: resolvedReceiptId,
     Service_Id: String(serviceId || 1),
   };
 
-  if (!requestBody.RefId) {
-    throw new Error("RefId is required for status-check");
+  if (!requestBody.receiptId) {
+    throw new Error("receiptId is required for status-check");
   }
 
-  const url =
-    process.env.OPENMONEY_STATUS_CHECK_URL ||
-    `${config.baseUrl}/api/payout/v1/status-check`;
+  const url = resolveOpenMoneyStatusCheckUrl(config.baseUrl);
 
   debugLog("OpenMoney status-check request", {
     method: "POST",
     url,
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json"
     },
     body: requestBody,
   });
@@ -406,6 +418,7 @@ export async function checkGatewayPaymentStatus({ refId, serviceId = 1 }) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(requestBody),
     cache: "no-store",

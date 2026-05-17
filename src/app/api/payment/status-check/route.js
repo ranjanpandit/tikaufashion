@@ -43,9 +43,9 @@ export async function POST(req) {
 
     const resolvedRefId = String(
       refId ||
-        order.paymentGateway?.providerOrderId ||
         order.paymentGateway?.receipt ||
         order.receipt ||
+        order.paymentGateway?.providerOrderId ||
         order.razorpayOrderId ||
         ""
     ).trim();
@@ -144,4 +144,3 @@ export async function POST(req) {
     );
   }
 }
-
